@@ -1,0 +1,50 @@
+# Institutional Digital Repository & E-Library Style Guide
+
+## Design Specifications
+
+### Border & Radius
+- All borders: 2px solid
+- Border color: #CBD5E1 (institutional gray-200)
+- Border radius: 4px (crisp corners)
+- Table borders: collapsed with 2px spacing
+
+### Color Palette
+- Primary institutional blue: #1E3A8A (deep)
+- Secondary: #3B82F6 (blue-500)
+- Accent: #EF4444 (red-500 for alerts)
+- Light background: #F8FAFC (gray-50)
+- Medium background: #E2E8F0 (gray-200)
+- Text color: #1E293B (gray-900)
+- Muted text: #64748B (gray-500)
+
+### Typography
+- Font family: Inter, system-ui, -apple-system, sans-serif
+- Font size: 14px base, 16px medium, 18px large
+- Line height: 1.5 for paragraphs, 1.25 for tables
+
+### Table Styles
+- High-density tables with minimal spacing
+- Zebra striping: alternate row bg #F1F5F9 (gray-100)
+- Hover state: bg #CBD5E1 with text #1E293B
+- Focus state: outline: 2px solid #3B82F6
+
+### Component Guidelines
+- Buttons: rounded corners, 2px border, hover bg-opacity-80
+- Cards: max-width 640px, rounded 4px, shadow sm
+- Forms: input border 2px, focus ring 2px #3B82F6
+- Modals: centered, padded, max-h-screen overflow-y-auto
+
+### Layout
+- Max-width containers: 1400px wide, centered with auto margins
+- Grid gap: 16px between columns
+- Padding: 1rem horizontal, 1.5rem vertical on sections
+
+### Accessibility
+- Contrast ratio: minimum 4.5:1 for normal text
+- Focus visible: 2px outline on interactive elements
+- Skip links available at top of page
+
+### Institutional Branding
+- Header height: 60px with 2px bottom border #CBD5E1
+- Logo max-height: 32px
+- Footer bg: #0F172A (gray-900), text: #94A3B8 (gray-300)

@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16
+    container_name: elibrary_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: elibrary
+      POSTGRES_USER: elibrary_user
+      POSTGRES_PASSWORD: elibrary_pass
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elibrary_user -d elibrary"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: elibrary_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://elibrary_user:elibrary_pass@db:5432/elibrary
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: elibrary-secret-key-change-in-production
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./public/uploads:/app/public/uploads
+
+volumes:
+  pgdata:
