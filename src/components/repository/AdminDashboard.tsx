@@ -20,8 +20,23 @@ import {
   Download,
   AlertCircle,
   KeyRound,
+  Building2,
+  BookOpen,
+  Layers3,
 } from 'lucide-react';
 import PortalHeader from './PortalHeader';
+import {
+  createCourseRequest,
+  createDepartmentRequest,
+  deleteCourseRequest,
+  deleteDepartmentRequest,
+  fetchCoursesRequest,
+  fetchDepartmentsRequest,
+  updateCourseRequest,
+  updateDepartmentRequest,
+  type CourseRecord,
+  type DepartmentRecord,
+} from '@/lib/library-api';
 
 /**
  * BULK USER IMPORT TEMPLATE FORMAT (ROW 1 HEADERS):
@@ -96,6 +111,29 @@ export const AdminDashboard: React.FC<Props> = ({
   // Modal state & mode ('single' | 'bulk')
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [modalTab, setModalTab] = useState<'single' | 'bulk'>('single');
+
+  // Academic catalogue management (departments and courses)
+  const [isAcademicModalOpen, setIsAcademicModalOpen] = useState(false);
+  const [academicTab, setAcademicTab] = useState<'departments' | 'courses'>('departments');
+  const [academicDepartments, setAcademicDepartments] = useState<DepartmentRecord[]>([]);
+  const [academicCourses, setAcademicCourses] = useState<CourseRecord[]>([]);
+  const [departmentName, setDepartmentName] = useState('');
+  const [departmentCode, setDepartmentCode] = useState('');
+  const [departmentDescription, setDepartmentDescription] = useState('');
+  const [editingDepartmentId, setEditingDepartmentId] = useState<string | null>(null);
+  const [deletingDepartmentId, setDeletingDepartmentId] = useState<string | null>(null);
+  const [isDepartmentFormOpen, setIsDepartmentFormOpen] = useState(false);
+  const [isCourseFormOpen, setIsCourseFormOpen] = useState(false);
+  const [courseTitle, setCourseTitle] = useState('');
+  const [courseCode, setCourseCode] = useState('');
+  const [courseDepartmentId, setCourseDepartmentId] = useState('');
+  const [courseCredits, setCourseCredits] = useState(3);
+  const [courseDescription, setCourseDescription] = useState('');
+  const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
+  const [deletingCourseId, setDeletingCourseId] = useState<string | null>(null);
+  const [academicError, setAcademicError] = useState('');
+  const [academicStatus, setAcademicStatus] = useState('');
+  const [isSavingAcademic, setIsSavingAcademic] = useState(false);
 
   // Bulk upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -178,6 +216,256 @@ export const AdminDashboard: React.FC<Props> = ({
     setBulkError('');
     setSingleError('');
     setIsCreateModalOpen(true);
+  };
+
+  const openAcademicModal = async () => {
+    setAcademicError('');
+    setAcademicStatus('');
+    setIsAcademicModalOpen(true);
+    const [departmentResult, courseResult] = await Promise.all([
+      fetchDepartmentsRequest(),
+      fetchCoursesRequest(),
+    ]);
+    if (departmentResult.ok && departmentResult.departments) {
+      setAcademicDepartments(departmentResult.departments);
+      if (!courseDepartmentId && departmentResult.departments[0]) {
+        setCourseDepartmentId(departmentResult.departments[0].id);
+      }
+    } else {
+      setAcademicError(departmentResult.error || 'Unable to load departments.');
+    }
+    if (courseResult.ok && courseResult.courses) {
+      setAcademicCourses(courseResult.courses);
+    } else {
+      setAcademicError((current) => current || courseResult.error || 'Unable to load courses.');
+    }
+  };
+
+  const refreshAcademicCatalogue = async () => {
+    const [departmentResult, courseResult] = await Promise.all([
+      fetchDepartmentsRequest(),
+      fetchCoursesRequest(),
+    ]);
+    if (departmentResult.ok && departmentResult.departments) {
+      setAcademicDepartments(departmentResult.departments);
+    }
+    if (courseResult.ok && courseResult.courses) {
+      setAcademicCourses(courseResult.courses);
+    }
+  };
+
+  const handleStartEditDepartment = (dept: DepartmentRecord) => {
+    setAcademicError('');
+    setAcademicStatus('');
+    setEditingDepartmentId(dept.id);
+    setDepartmentName(dept.name);
+    setDepartmentCode(dept.code || '');
+    setDepartmentDescription(dept.description || '');
+    setIsDepartmentFormOpen(true);
+  };
+
+  const handleOpenNewDepartmentForm = () => {
+    setAcademicError('');
+    setAcademicStatus('');
+    setEditingDepartmentId(null);
+    setDepartmentName('');
+    setDepartmentCode('');
+    setDepartmentDescription('');
+    setIsDepartmentFormOpen(true);
+  };
+
+  const handleCancelEditDepartment = () => {
+    setEditingDepartmentId(null);
+    setDepartmentName('');
+    setDepartmentCode('');
+    setDepartmentDescription('');
+    setIsDepartmentFormOpen(false);
+  };
+
+  const handleOpenNewCourseForm = () => {
+    setAcademicError('');
+    setAcademicStatus('');
+    setEditingCourseId(null);
+    setCourseTitle('');
+    setCourseCode('');
+    setCourseCredits(3);
+    setCourseDescription('');
+    if (!courseDepartmentId && academicDepartments[0]) {
+      setCourseDepartmentId(academicDepartments[0].id);
+    }
+    setIsCourseFormOpen(true);
+  };
+
+  const handleStartEditCourse = (course: CourseRecord) => {
+    setAcademicError('');
+    setAcademicStatus('');
+    setEditingCourseId(course.id);
+    setCourseTitle(course.title);
+    setCourseCode(course.code);
+    setCourseDepartmentId(course.departmentId);
+    setCourseCredits(course.credits);
+    setCourseDescription(course.description || '');
+    setIsCourseFormOpen(true);
+  };
+
+  const handleCancelEditCourse = () => {
+    setEditingCourseId(null);
+    setCourseTitle('');
+    setCourseCode('');
+    setCourseCredits(3);
+    setCourseDescription('');
+    setIsCourseFormOpen(false);
+  };
+
+  const handleSaveDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAcademicError('');
+    setAcademicStatus('');
+    setIsSavingAcademic(true);
+    try {
+      if (editingDepartmentId) {
+        const result = await updateDepartmentRequest(editingDepartmentId, {
+          name: departmentName.trim(),
+          code: departmentCode.trim() ? departmentCode.trim().toUpperCase() : null,
+          description: departmentDescription.trim() ? departmentDescription.trim() : null,
+        });
+        if (!result.ok || !result.department) {
+          setAcademicError(result.error || 'Could not update department.');
+          return;
+        }
+        const updatedName = result.department.name;
+        setEditingDepartmentId(null);
+        setDepartmentName('');
+        setDepartmentCode('');
+        setDepartmentDescription('');
+        setIsDepartmentFormOpen(false);
+        setAcademicStatus(`Department “${updatedName}” updated successfully.`);
+        await refreshAcademicCatalogue();
+        return;
+      }
+
+      const result = await createDepartmentRequest({
+        name: departmentName.trim(),
+        code: departmentCode.trim() || undefined,
+        description: departmentDescription.trim() || undefined,
+      });
+      if (!result.ok || !result.department) {
+        setAcademicError(result.error || 'Could not create department.');
+        return;
+      }
+      setDepartmentName('');
+      setDepartmentCode('');
+      setDepartmentDescription('');
+      setIsDepartmentFormOpen(false);
+      setCourseDepartmentId(result.department.id);
+      setAcademicStatus(`Department “${result.department.name}” created successfully.`);
+      await refreshAcademicCatalogue();
+    } catch {
+      setAcademicError('A network error occurred while saving the department.');
+    } finally {
+      setIsSavingAcademic(false);
+    }
+  };
+
+  const handleDeleteDepartment = async (dept: DepartmentRecord) => {
+    setAcademicError('');
+    setAcademicStatus('');
+    setDeletingDepartmentId(dept.id);
+    try {
+      const result = await deleteDepartmentRequest(dept.id);
+      if (!result.ok) {
+        setAcademicError(result.error || 'Could not delete department.');
+        return;
+      }
+      if (editingDepartmentId === dept.id) {
+        handleCancelEditDepartment();
+      }
+      if (courseDepartmentId === dept.id) {
+        setCourseDepartmentId('');
+      }
+      setAcademicStatus(`Department “${dept.name}” deleted.`);
+      await refreshAcademicCatalogue();
+    } catch {
+      setAcademicError('A network error occurred while deleting the department.');
+    } finally {
+      setDeletingDepartmentId(null);
+    }
+  };
+
+  const handleSaveCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAcademicError('');
+    setAcademicStatus('');
+    setIsSavingAcademic(true);
+    try {
+      if (editingCourseId) {
+        const result = await updateCourseRequest(editingCourseId, {
+          title: courseTitle.trim(),
+          code: courseCode.trim().toUpperCase(),
+          departmentId: courseDepartmentId,
+          credits: courseCredits,
+          description: courseDescription.trim() ? courseDescription.trim() : null,
+        });
+        if (!result.ok || !result.course) {
+          setAcademicError(result.error || 'Could not update course.');
+          return;
+        }
+        const updatedLabel = `${result.course.code} — ${result.course.title}`;
+        setEditingCourseId(null);
+        setCourseTitle('');
+        setCourseCode('');
+        setCourseCredits(3);
+        setCourseDescription('');
+        setIsCourseFormOpen(false);
+        setAcademicStatus(`Course “${updatedLabel}” updated successfully.`);
+        await refreshAcademicCatalogue();
+        return;
+      }
+
+      const result = await createCourseRequest({
+        title: courseTitle.trim(),
+        code: courseCode.trim(),
+        departmentId: courseDepartmentId,
+        credits: courseCredits,
+        description: courseDescription.trim() || undefined,
+      });
+      if (!result.ok || !result.course) {
+        setAcademicError(result.error || 'Could not create course.');
+        return;
+      }
+      setCourseTitle('');
+      setCourseCode('');
+      setCourseDescription('');
+      setIsCourseFormOpen(false);
+      setAcademicStatus(`Course “${result.course.code} — ${result.course.title}” created successfully.`);
+      await refreshAcademicCatalogue();
+    } catch {
+      setAcademicError('A network error occurred while saving the course.');
+    } finally {
+      setIsSavingAcademic(false);
+    }
+  };
+
+  const handleDeleteCourse = async (course: CourseRecord) => {
+    setAcademicError('');
+    setAcademicStatus('');
+    setDeletingCourseId(course.id);
+    try {
+      const result = await deleteCourseRequest(course.id);
+      if (!result.ok) {
+        setAcademicError(result.error || 'Could not delete course.');
+        return;
+      }
+      if (editingCourseId === course.id) {
+        handleCancelEditCourse();
+      }
+      setAcademicStatus(`Course “${course.code} — ${course.title}” deleted.`);
+      await refreshAcademicCatalogue();
+    } catch {
+      setAcademicError('A network error occurred while deleting the course.');
+    } finally {
+      setDeletingCourseId(null);
+    }
   };
 
   const handleCreateUser = (e: React.FormEvent) => {
@@ -479,7 +767,16 @@ export const AdminDashboard: React.FC<Props> = ({
               </p>
             </div>
             <div className="repo-heading-right">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={openAcademicModal}
+                  style={{ height: '32px', padding: '0 12px', fontSize: '11px' }}
+                >
+                  <Layers3 size={14} aria-hidden="true" />
+                  <span>Departments &amp; Courses</span>
+                </button>
                 <button
                   type="button"
                   className="secondary"
@@ -895,107 +1192,64 @@ export const AdminDashboard: React.FC<Props> = ({
                   </p>
 
                   {singleError && (
-                    <div
-                      role="alert"
-                      style={{
-                        marginTop: '12px',
-                        padding: '8px 10px',
-                        background: '#FEF2F2',
-                        border: '1px solid #FECACA',
-                        color: '#B91C1C',
-                        fontSize: '11px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                      }}
-                    >
-                      <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                    <div role="alert" className="repo-alert-error">
+                      <AlertCircle size={14} aria-hidden="true" />
                       <span>{singleError}</span>
                     </div>
                   )}
 
-                  <form id="single-user-form" onSubmit={handleCreateUser} className="space-y-4 mt-4">
-                    <div>
-                      <label
-                        htmlFor="modal-user-student-id"
-                        className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
-                      >
-                        Student ID {role === 'STUDENT' ? '(Required)' : '(Optional)'}
-                      </label>
+                  <form id="single-user-form" onSubmit={handleCreateUser} className="repo-form">
+                    <label className="repo-field">
+                      <span>Student ID {role === 'STUDENT' ? '(Required)' : '(Optional)'}</span>
                       <input
                         id="modal-user-student-id"
                         type="text"
                         required={role === 'STUDENT'}
                         placeholder="e.g. STU-2026-105"
-                        className="h-[36px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px] focus:outline-2 focus:outline-[#C8D8F0] focus:border-[#1E5F9A]"
                         value={studentId}
                         onChange={(e) => setStudentId(e.target.value)}
                       />
-                    </div>
+                    </label>
 
-                    <div>
-                      <label
-                        htmlFor="modal-user-name"
-                        className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
-                      >
-                        Full Name
-                      </label>
+                    <label className="repo-field">
+                      <span>Full Name</span>
                       <input
                         id="modal-user-name"
                         type="text"
                         required
                         placeholder="e.g. Thabo Mthethwa"
-                        className="h-[36px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px] focus:outline-2 focus:outline-[#C8D8F0] focus:border-[#1E5F9A]"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                       />
-                    </div>
+                    </label>
 
-                    <div>
-                      <label
-                        htmlFor="modal-user-email"
-                        className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
-                      >
-                        Institutional Email
-                      </label>
+                    <label className="repo-field">
+                      <span>Institutional Email</span>
                       <input
                         id="modal-user-email"
                         type="email"
                         required
                         placeholder="e.g. thabo@college.ac.sz"
-                        className="h-[36px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px] focus:outline-2 focus:outline-[#C8D8F0] focus:border-[#1E5F9A]"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                       />
-                    </div>
+                    </label>
 
-                    <div>
-                      <label
-                        htmlFor="modal-user-temp-pass"
-                        className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
-                      >
-                        Temporary Password (Optional · defaults to password123)
-                      </label>
+                    <label className="repo-field">
+                      <span>Temporary Password (Optional · defaults to password123)</span>
                       <input
                         id="modal-user-temp-pass"
                         type="text"
                         placeholder="Leave blank to use default temporary password"
-                        className="h-[36px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px] focus:outline-2 focus:outline-[#C8D8F0] focus:border-[#1E5F9A]"
                         value={tempPasswordInput}
                         onChange={(e) => setTempPasswordInput(e.target.value)}
                       />
-                    </div>
+                    </label>
 
-                    <div>
-                      <label
-                        htmlFor="modal-user-role"
-                        className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
-                      >
-                        System Role
-                      </label>
+                    <label className="repo-field">
+                      <span>System Role</span>
                       <select
                         id="modal-user-role"
-                        className="h-[36px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px] focus:outline-2 focus:outline-[#C8D8F0] focus:border-[#1E5F9A]"
                         value={role}
                         onChange={(e) => setRole(e.target.value as Role)}
                       >
@@ -1003,19 +1257,13 @@ export const AdminDashboard: React.FC<Props> = ({
                         <option value="INSTRUCTOR">Instructor (Upload &amp; Manage)</option>
                         <option value="SYSTEM_ADMIN">System Administrator</option>
                       </select>
-                    </div>
+                    </label>
 
                     {role !== 'SYSTEM_ADMIN' && (
-                      <div>
-                        <label
-                          htmlFor="modal-user-dept"
-                          className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
-                        >
-                          Assigned Department
-                        </label>
+                      <label className="repo-field">
+                        <span>Assigned Department</span>
                         <select
                           id="modal-user-dept"
-                          className="h-[36px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px] focus:outline-2 focus:outline-[#C8D8F0] focus:border-[#1E5F9A]"
                           value={department}
                           onChange={(e) => setDepartment(e.target.value as Department)}
                         >
@@ -1023,7 +1271,7 @@ export const AdminDashboard: React.FC<Props> = ({
                           <option value="CYBER_SECURITY">Cyber Security</option>
                           <option value="MULTIMEDIA">Multimedia</option>
                         </select>
-                      </div>
+                      </label>
                     )}
                   </form>
                 </>
@@ -1215,22 +1463,18 @@ export const AdminDashboard: React.FC<Props> = ({
                     </div>
                   </div>
 
-                  <div style={{ marginBottom: '12px' }}>
-                    <label
-                      htmlFor="bulk-duplicate-mode"
-                      className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
-                    >
-                      Duplicate Account Handling
+                  <div className="repo-form" style={{ marginBottom: '12px' }}>
+                    <label className="repo-field">
+                      <span>Duplicate Account Handling</span>
+                      <select
+                        id="bulk-duplicate-mode"
+                        value={onDuplicate}
+                        onChange={(e) => setOnDuplicate(e.target.value as 'skip' | 'update')}
+                      >
+                        <option value="skip">Skip existing accounts (by Student ID or Email)</option>
+                        <option value="update">Update existing profile details (keep existing password)</option>
+                      </select>
                     </label>
-                    <select
-                      id="bulk-duplicate-mode"
-                      value={onDuplicate}
-                      onChange={(e) => setOnDuplicate(e.target.value as 'skip' | 'update')}
-                      className="h-[34px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px]"
-                    >
-                      <option value="skip">Skip existing accounts (by Student ID or Email)</option>
-                      <option value="update">Update existing profile details (keep existing password)</option>
-                    </select>
                   </div>
 
                   <div>
@@ -1272,20 +1516,8 @@ export const AdminDashboard: React.FC<Props> = ({
                   </div>
 
                   {bulkError && (
-                    <div
-                      style={{
-                        marginTop: '12px',
-                        padding: '8px 10px',
-                        background: '#FEF2F2',
-                        border: '1px solid #FECACA',
-                        color: '#B91C1C',
-                        fontSize: '11px',
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: '6px',
-                      }}
-                    >
-                      <AlertCircle size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <div role="alert" className="repo-alert-error">
+                      <AlertCircle size={14} aria-hidden="true" />
                       <span>{bulkError}</span>
                     </div>
                   )}
@@ -1362,6 +1594,310 @@ export const AdminDashboard: React.FC<Props> = ({
                   </span>
                 </button>
               )}
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {/* Academic Catalogue Modal */}
+      {isAcademicModalOpen && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsAcademicModalOpen(false);
+          }}
+        >
+          <section
+            className="repo-modal"
+            style={{ width: 'min(760px, 100%)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="academic-modal-title"
+          >
+            <header>
+              <strong id="academic-modal-title">
+                <Layers3 size={15} aria-hidden="true" />
+                ACADEMIC CATALOGUE · STRUCTURE
+              </strong>
+              <div className="repo-modal-tabs" role="group" aria-label="Catalogue management">
+                <button
+                  type="button"
+                  className={academicTab === 'departments' ? 'active' : ''}
+                  onClick={() => { setAcademicTab('departments'); setAcademicError(''); setAcademicStatus(''); }}
+                >
+                  <Building2 size={13} /> Departments
+                </button>
+                <button
+                  type="button"
+                  className={academicTab === 'courses' ? 'active' : ''}
+                  onClick={() => { setAcademicTab('courses'); setAcademicError(''); setAcademicStatus(''); }}
+                >
+                  <BookOpen size={13} /> Courses
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAcademicModalOpen(false)}
+                aria-label="Close academic catalogue"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="modal-body">
+              <small>INSTITUTIONAL STRUCTURE</small>
+              <h2>{academicTab === 'departments' ? 'Manage Departments' : 'Manage Courses'}</h2>
+              <p>
+                {academicTab === 'departments'
+                  ? 'Create, update, or delete departments to organise the institution’s academic catalogue.'
+                  : 'Create, update, or delete courses and assign each course to its owning department.'}
+              </p>
+
+              {academicError && (
+                <div role="alert" className="repo-alert-error">
+                  <AlertCircle size={14} aria-hidden="true" />
+                  <span>{academicError}</span>
+                </div>
+              )}
+              {academicStatus && (
+                <div role="status" className="repo-alert-error" style={{ borderColor: "#B7D8C4", background: "#F0F8F3", color: "#245C3B" }}>
+                  <Check size={14} aria-hidden="true" />
+                  <span>{academicStatus}</span>
+                </div>
+              )}
+
+              {academicTab === 'departments' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <strong style={{ fontSize: '12px' }}>Existing Departments</strong>
+                      <span className="repo-count"><strong>{academicDepartments.length}</strong><span>DEPARTMENTS</span></span>
+                    </div>
+                    {!isDepartmentFormOpen && (
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={handleOpenNewDepartmentForm}
+                      >
+                        <Building2 size={13} aria-hidden="true" />
+                        <span>New Department</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {isDepartmentFormOpen && (
+                    <form
+                      className="repo-form"
+                      onSubmit={handleSaveDepartment}
+                      style={{ padding: '14px', border: '1px solid #CBD5E1', borderRadius: '2px', background: '#F8FAFC' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <strong style={{ fontSize: '12px' }}>
+                          {editingDepartmentId ? 'Edit Department' : 'Create New Department'}
+                        </strong>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={handleCancelEditDepartment}
+                          disabled={isSavingAcademic}
+                        >
+                          Hide Form
+                        </button>
+                      </div>
+                      <label className="repo-field">
+                        <span>Department Name</span>
+                        <input value={departmentName} onChange={(e) => setDepartmentName(e.target.value)} required placeholder="e.g. Engineering" />
+                      </label>
+                      <label className="repo-field">
+                        <span>Department Code <small>(Optional)</small></span>
+                        <input value={departmentCode} onChange={(e) => setDepartmentCode(e.target.value.toUpperCase())} placeholder="e.g. ENG" />
+                      </label>
+                      <label className="repo-field">
+                        <span>Description <small>(Optional)</small></span>
+                        <textarea value={departmentDescription} onChange={(e) => setDepartmentDescription(e.target.value)} rows={3} placeholder="Briefly describe this department" />
+                      </label>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button type="submit" className="primary" disabled={isSavingAcademic || !departmentName.trim()}>
+                          <Building2 size={13} aria-hidden="true" />
+                          <span>
+                            {isSavingAcademic
+                              ? 'Saving...'
+                              : editingDepartmentId
+                                ? 'Update Department'
+                                : 'Create Department'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={handleCancelEditDepartment}
+                          disabled={isSavingAcademic}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="repo-table-wrap" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+                    <table className="repo-table">
+                      <thead><tr><th>Department</th><th>Code</th><th>Actions</th></tr></thead>
+                      <tbody>
+                        {academicDepartments.length ? academicDepartments.map((item) => (
+                          <tr key={item.id}>
+                            <td><strong>{item.name}</strong>{item.description ? <div style={{ color: '#68737D', fontSize: '11px', marginTop: '3px' }}>{item.description}</div> : null}</td>
+                            <td>{item.code || '—'}</td>
+                            <td>
+                              <div className="row-actions">
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  onClick={() => handleStartEditDepartment(item)}
+                                  disabled={deletingDepartmentId === item.id}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  onClick={() => handleDeleteDepartment(item)}
+                                  disabled={deletingDepartmentId === item.id}
+                                >
+                                  {deletingDepartmentId === item.id ? 'Deleting...' : 'Delete'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )) : <tr><td colSpan={3}>No departments created yet.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <strong style={{ fontSize: '12px' }}>Existing Courses</strong>
+                      <span className="repo-count"><strong>{academicCourses.length}</strong><span>COURSES</span></span>
+                    </div>
+                    {!isCourseFormOpen && (
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={handleOpenNewCourseForm}
+                      >
+                        <BookOpen size={13} aria-hidden="true" />
+                        <span>New Course</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {isCourseFormOpen && (
+                    <form
+                      className="repo-form"
+                      onSubmit={handleSaveCourse}
+                      style={{ padding: '14px', border: '1px solid #CBD5E1', borderRadius: '2px', background: '#F8FAFC' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <strong style={{ fontSize: '12px' }}>
+                          {editingCourseId ? 'Edit Course' : 'Create New Course'}
+                        </strong>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={handleCancelEditCourse}
+                          disabled={isSavingAcademic}
+                        >
+                          Hide Form
+                        </button>
+                      </div>
+                      <label className="repo-field">
+                        <span>Course Title</span>
+                        <input value={courseTitle} onChange={(e) => setCourseTitle(e.target.value)} required placeholder="e.g. Introduction to Programming" />
+                      </label>
+                      <label className="repo-field">
+                        <span>Course Code</span>
+                        <input value={courseCode} onChange={(e) => setCourseCode(e.target.value.toUpperCase())} required placeholder="e.g. CMP101" />
+                      </label>
+                      <label className="repo-field">
+                        <span>Department</span>
+                        <select value={courseDepartmentId} onChange={(e) => setCourseDepartmentId(e.target.value)} required disabled={academicDepartments.length === 0}>
+                          <option value="">Select a department</option>
+                          {academicDepartments.map((item) => <option key={item.id} value={item.id}>{item.name}{item.code ? ` (${item.code})` : ''}</option>)}
+                        </select>
+                        {academicDepartments.length === 0 && <small>Create a department before adding courses.</small>}
+                      </label>
+                      <label className="repo-field">
+                        <span>Credits</span>
+                        <input type="number" min={1} step={1} value={courseCredits} onChange={(e) => setCourseCredits(Math.max(1, Number(e.target.value) || 1))} required />
+                      </label>
+                      <label className="repo-field">
+                        <span>Description <small>(Optional)</small></span>
+                        <textarea value={courseDescription} onChange={(e) => setCourseDescription(e.target.value)} rows={3} placeholder="Brief course description" />
+                      </label>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button type="submit" className="primary" disabled={isSavingAcademic || !courseTitle.trim() || !courseCode.trim() || !courseDepartmentId}>
+                          <BookOpen size={13} aria-hidden="true" />
+                          <span>
+                            {isSavingAcademic
+                              ? 'Saving...'
+                              : editingCourseId
+                                ? 'Update Course'
+                                : 'Create Course'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={handleCancelEditCourse}
+                          disabled={isSavingAcademic}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="repo-table-wrap" style={{ maxHeight: '340px', overflowY: 'auto' }}>
+                    <table className="repo-table">
+                      <thead><tr><th>Course</th><th>Code</th><th>Department</th><th>Actions</th></tr></thead>
+                      <tbody>
+                        {academicCourses.length ? academicCourses.map((item) => (
+                          <tr key={item.id}>
+                            <td><strong>{item.title}</strong><div style={{ color: '#68737D', fontSize: '11px', marginTop: '3px' }}>{item.credits} credits</div></td>
+                            <td>{item.code}</td>
+                            <td>{item.department?.name || academicDepartments.find((d) => d.id === item.departmentId)?.name || '—'}</td>
+                            <td>
+                              <div className="row-actions">
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  onClick={() => handleStartEditCourse(item)}
+                                  disabled={deletingCourseId === item.id}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  onClick={() => handleDeleteCourse(item)}
+                                  disabled={deletingCourseId === item.id}
+                                >
+                                  {deletingCourseId === item.id ? 'Deleting...' : 'Delete'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )) : <tr><td colSpan={4}>No courses created yet.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <footer>
+              <button type="button" className="secondary" onClick={() => setIsAcademicModalOpen(false)}>Close</button>
             </footer>
           </section>
         </div>

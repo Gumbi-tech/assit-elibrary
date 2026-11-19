@@ -885,3 +885,146 @@
 .login-demo-btn:hover .login-demo-action {
   text-decoration: underline;
 }
+
+
+
+/* ==========================================================================
+   Institutional modal to create account Screen (Minimalist Centered Card)
+   ========================================================================== */
+
+
+.repo-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.repo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.repo-field > span {
+  font-size: 10px;
+  font-weight: 700;
+  color: #475467;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.repo-field input,
+.repo-field select {
+  height: 36px;
+  width: 100%;
+  border: 1px solid #AAB7C6;
+  border-radius: 2px;
+  background: #FFFFFF;
+  color: #1E293B;
+  font: 11px Arial, Helvetica, sans-serif;
+  padding: 0 9px;
+}
+
+.repo-field input:focus,
+.repo-field select:focus {
+  outline: 2px solid #C8D8F0;
+  border-color: #1E5F9A;
+}
+
+.repo-alert-error {
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 2px;
+  color: #B91C1C;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+
+/* Modal Header & Segmented Tabs Alignment */
+.repo-modal > header {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  background: #1B365D;
+  color: #FFFFFF;
+}
+
+.repo-modal > header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.repo-modal > header .repo-modal-tabs {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  background: #102236;
+  padding: 2px;
+  border-radius: 3px;
+  border: 1px solid #2E4C6D;
+  flex-shrink: 0;
+}
+
+.repo-modal > header .repo-modal-tabs button {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: #B9CBE0;
+  font-size: 10px;
+  font-weight: bold;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.repo-modal > header .repo-modal-tabs button:hover {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.repo-modal > header .repo-modal-tabs button.active {
+  background: #29445F;
+  color: #FFFFFF;
+}
+
+.repo-modal > header > button:last-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: #D5E1EF;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.repo-modal > header > button:last-child:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #FFFFFF;
+}
