@@ -3,6 +3,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Role, Department } from '@/types/elibrary';
+import type { ProvisionedUser } from '@/app/api/auth';
 import {
   Users,
   UserPlus,
@@ -18,35 +19,20 @@ import {
   FileSpreadsheet,
   Download,
   AlertCircle,
+  KeyRound,
 } from 'lucide-react';
 import PortalHeader from './PortalHeader';
 
 /**
- * ============================================================================
- * BULK USER IMPORT SPECIFICATION (CSV / EXCEL TEMPLATE FORMAT)
- * ============================================================================
- * To support rapid onboarding of hundreds of existing college students or staff,
- * upload a CSV file (.csv) or Excel file (.xlsx / .xls - saved/exported as CSV
- * or parsed client-side) structured with the following headers in Row 1:
+ * BULK USER IMPORT TEMPLATE FORMAT (ROW 1 HEADERS):
+ *   student_id,name,email,role,department,program,year_of_study,phone
  *
- *   name,email,role,department
- *
- * Example CSV Content:
- * ----------------------------------------------------------------------------
- * name,email,role,department
- * Thabo Mthethwa,thabo.mthethwa@college.ac.sz,STUDENT,SOFTWARE_ENGINEERING
- * Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY
- * Sipho Nkosi,sipho.nkosi@college.ac.sz,STUDENT,MULTIMEDIA
- * Dr. B. Zwane,b.zwane@college.ac.sz,INSTRUCTOR,SOFTWARE_ENGINEERING
- * ----------------------------------------------------------------------------
- *
- * Column Rules:
- * 1. name       (Required) : Full name of the student or staff member.
- * 2. email      (Required) : Unique institutional email address.
- * 3. role       (Optional) : STUDENT | INSTRUCTOR | SYSTEM_ADMIN (Defaults to STUDENT)
- * 4. department (Optional) : SOFTWARE_ENGINEERING | CYBER_SECURITY | MULTIMEDIA
- *                            (Defaults to SOFTWARE_ENGINEERING if omitted for non-admins)
- * ============================================================================
+ * - student_id : Required for STUDENT accounts (used as login identifier alongside email).
+ * - name       : Required full name of student or staff member.
+ * - email      : Required unique institutional email address.
+ * - role       : Optional (STUDENT | INSTRUCTOR | SYSTEM_ADMIN). Defaults to STUDENT.
+ * - department : Optional (SOFTWARE_ENGINEERING | CYBER_SECURITY | MULTIMEDIA).
+ * - Extra columns are preserved automatically in profileData.
  */
 
 type Props = {
@@ -55,25 +41,56 @@ type Props = {
   onNavigateHome?: () => void;
 };
 
-type ParsedBulkUser = {
+type ParsedBulkRow = Record<string, unknown> & {
+  studentId?: string;
   name: string;
   email: string;
   role: Role;
   department?: Department;
 };
 
+const EXCEL_SAMPLE_ROWS = [
+  {
+    rowNum: 2,
+    studentId: 'STU-2026-101',
+    name: 'Thabo Mthethwa',
+    email: 'thabo.mthethwa@college.ac.sz',
+    role: 'STUDENT',
+    department: 'SOFTWARE_ENGINEERING',
+  },
+  {
+    rowNum: 3,
+    studentId: 'STU-2026-102',
+    name: 'Zanele Dlamini',
+    email: 'zanele.dlamini@college.ac.sz',
+    role: 'STUDENT',
+    department: 'CYBER_SECURITY',
+  },
+  {
+    rowNum: 4,
+    studentId: 'STF-2026-201',
+    name: 'Dr. B. Zwane',
+    email: 'b.zwane@college.ac.sz',
+    role: 'INSTRUCTOR',
+    department: 'MULTIMEDIA',
+  },
+];
+
 export const AdminDashboard: React.FC<Props> = ({
   onSearch,
   onLogout,
   onNavigateHome,
 }) => {
-  const { users, createUser, updateUserStatus, logout } = useAuth();
+  const { users, createUser, bulkImportUsers, updateUserStatus, logout } = useAuth();
 
   // Single user form state
+  const [studentId, setStudentId] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('STUDENT');
   const [department, setDepartment] = useState<Department>('SOFTWARE_ENGINEERING');
+  const [tempPasswordInput, setTempPasswordInput] = useState('');
+  const [singleError, setSingleError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   // Modal state & mode ('single' | 'bulk')
@@ -83,15 +100,20 @@ export const AdminDashboard: React.FC<Props> = ({
   // Bulk upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [bulkFileName, setBulkFileName] = useState('');
-  const [bulkPreview, setBulkPreview] = useState<ParsedBulkUser[]>([]);
+  const [bulkPreview, setBulkPreview] = useState<ParsedBulkRow[]>([]);
   const [bulkError, setBulkError] = useState('');
+  const [onDuplicate, setOnDuplicate] = useState<'skip' | 'update'>('skip');
+  const [isImporting, setIsImporting] = useState(false);
 
-  // Filter state aligned with DocumentFilters
+  // One-time temporary credentials report after bulk creation
+  const [provisionedReport, setProvisionedReport] = useState<ProvisionedUser[]>([]);
+
+  // Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
-  // Row selection state aligned with DocumentsTable
+  // Row selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const filteredUsers = useMemo(() => {
@@ -106,6 +128,7 @@ export const AdminDashboard: React.FC<Props> = ({
         !q ||
         u.name.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
+        (u.studentId && u.studentId.toLowerCase().includes(q)) ||
         u.id.toLowerCase().includes(q) ||
         (u.department && u.department.toLowerCase().includes(q));
       return matchesRole && matchesStatus && matchesQuery;
@@ -153,26 +176,57 @@ export const AdminDashboard: React.FC<Props> = ({
   const openModal = (tab: 'single' | 'bulk' = 'single') => {
     setModalTab(tab);
     setBulkError('');
+    setSingleError('');
     setIsCreateModalOpen(true);
   };
 
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
+    setSingleError('');
+
+    const trimmedId = studentId.trim().toUpperCase();
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedName = name.trim();
+
+    if (role === 'STUDENT' && !trimmedId) {
+      setSingleError('Student ID is required for STUDENT accounts.');
+      return;
+    }
+
+    const duplicate = users.find(
+      (u) =>
+        u.email.toLowerCase() === trimmedEmail ||
+        (trimmedId && u.studentId && u.studentId.toUpperCase() === trimmedId)
+    );
+    if (duplicate) {
+      setSingleError('An account with this Email or Student ID already exists.');
+      return;
+    }
+
+    const initialPassword = tempPasswordInput.trim() || 'password123';
+
     createUser({
-      name: name.trim(),
-      email: email.trim(),
+      studentId: trimmedId || undefined,
+      name: trimmedName,
+      email: trimmedEmail,
       role,
       department: role === 'SYSTEM_ADMIN' ? undefined : department,
+      password: initialPassword,
+      mustChangePassword: true,
       isActive: true,
     });
+
+    setStudentId('');
     setName('');
     setEmail('');
+    setTempPasswordInput('');
     setIsCreateModalOpen(false);
-    setSuccessMsg('Account provisioned and RBAC privileges assigned.');
-    setTimeout(() => setSuccessMsg(''), 4000);
+    setSuccessMsg(
+      `Account created for ${trimmedName} (temp password: ${initialPassword}; forced password change on first login).`
+    );
+    setTimeout(() => setSuccessMsg(''), 6000);
   };
 
-  // Normalize department strings from spreadsheets (e.g., "Software Engineering" -> "SOFTWARE_ENGINEERING")
   const normalizeDepartment = (raw?: string): Department => {
     const val = (raw || '').trim().toUpperCase().replace(/\s+/g, '_');
     if (val === 'CYBER_SECURITY' || val === 'CYBERSECURITY') return 'CYBER_SECURITY';
@@ -180,7 +234,6 @@ export const AdminDashboard: React.FC<Props> = ({
     return 'SOFTWARE_ENGINEERING';
   };
 
-  // Normalize role strings from spreadsheets
   const normalizeRole = (raw?: string): Role => {
     const val = (raw || '').trim().toUpperCase().replace(/\s+/g, '_');
     if (val === 'SYSTEM_ADMIN' || val === 'ADMIN') return 'SYSTEM_ADMIN';
@@ -188,8 +241,7 @@ export const AdminDashboard: React.FC<Props> = ({
     return 'STUDENT';
   };
 
-  // Parse CSV or tab-delimited text from uploaded file
-  const parseSpreadsheetRows = (text: string): ParsedBulkUser[] => {
+  const parseSpreadsheetRows = (text: string): ParsedBulkRow[] => {
     const lines = text
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -200,35 +252,76 @@ export const AdminDashboard: React.FC<Props> = ({
     }
 
     const delimiter = lines[0].includes('\t') ? '\t' : ',';
-    const firstCols = lines[0].split(delimiter).map((c) => c.replace(/^"|"$/g, '').trim().toLowerCase());
-    const hasHeader = firstCols.includes('name') || firstCols.includes('email');
+    const rawHeaders = lines[0]
+      .split(delimiter)
+      .map((c) => c.replace(/^"|"$/g, '').trim());
+    const lowerHeaders = rawHeaders.map((h) => h.toLowerCase().replace(/\s+/g, '_'));
+
+    const hasHeader =
+      lowerHeaders.includes('name') ||
+      lowerHeaders.includes('full_name') ||
+      lowerHeaders.includes('email');
     const dataLines = hasHeader ? lines.slice(1) : lines;
 
-    const nameIdx = hasHeader && firstCols.indexOf('name') !== -1 ? firstCols.indexOf('name') : 0;
-    const emailIdx = hasHeader && firstCols.indexOf('email') !== -1 ? firstCols.indexOf('email') : 1;
-    const roleIdx = hasHeader && firstCols.indexOf('role') !== -1 ? firstCols.indexOf('role') : 2;
-    const deptIdx = hasHeader && firstCols.indexOf('department') !== -1 ? firstCols.indexOf('department') : 3;
+    const findCol = (aliases: string[], fallback: number) => {
+      if (!hasHeader) return fallback;
+      for (const alias of aliases) {
+        const idx = lowerHeaders.indexOf(alias);
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    };
 
-    const parsed: ParsedBulkUser[] = [];
+    const studentIdIdx = findCol(['student_id', 'studentid', 'student_number', 'reg_no'], -1);
+    const nameIdx = findCol(['name', 'full_name', 'fullname'], studentIdIdx === 0 ? 1 : 0);
+    const emailIdx = findCol(['email', 'email_address'], studentIdIdx === 0 ? 2 : 1);
+    const roleIdx = findCol(['role', 'user_type'], -1);
+    const deptIdx = findCol(['department', 'dept'], -1);
+
+    const knownIndices = new Set(
+      [studentIdIdx, nameIdx, emailIdx, roleIdx, deptIdx].filter((i) => i >= 0)
+    );
+
+    const parsed: ParsedBulkRow[] = [];
 
     dataLines.forEach((line, idx) => {
       const cols = line.split(delimiter).map((c) => c.replace(/^"|"$/g, '').trim());
-      const rowName = cols[nameIdx] || '';
-      const rowEmail = cols[emailIdx] || '';
+      const rowStudentId =
+        studentIdIdx >= 0 && cols[studentIdIdx] ? cols[studentIdIdx].toUpperCase() : undefined;
+      const rowName = nameIdx >= 0 ? cols[nameIdx] || '' : '';
+      const rowEmail = emailIdx >= 0 ? (cols[emailIdx] || '').toLowerCase() : '';
 
       if (!rowName || !rowEmail || !rowEmail.includes('@')) {
         throw new Error(`Invalid name or email on data row ${idx + 1}: "${line}"`);
       }
 
-      const parsedRole = normalizeRole(cols[roleIdx]);
+      const parsedRole = normalizeRole(roleIdx >= 0 ? cols[roleIdx] : undefined);
+      if (parsedRole === 'STUDENT' && !rowStudentId) {
+        throw new Error(`Missing student_id for STUDENT on row ${idx + 1} (${rowEmail}).`);
+      }
+
       const parsedDept =
-        parsedRole === 'SYSTEM_ADMIN' ? undefined : normalizeDepartment(cols[deptIdx]);
+        parsedRole === 'SYSTEM_ADMIN'
+          ? undefined
+          : normalizeDepartment(deptIdx >= 0 ? cols[deptIdx] : undefined);
+
+      const extraProfile: Record<string, unknown> = {};
+      cols.forEach((colVal, colIndex) => {
+        if (!knownIndices.has(colIndex) && colVal !== '') {
+          const key = hasHeader
+            ? rawHeaders[colIndex] || `column_${colIndex + 1}`
+            : `column_${colIndex + 1}`;
+          extraProfile[key] = colVal;
+        }
+      });
 
       parsed.push({
+        studentId: rowStudentId,
         name: rowName,
         email: rowEmail,
         role: parsedRole,
         department: parsedDept,
+        ...(Object.keys(extraProfile).length > 0 ? { profileData: extraProfile } : {}),
       });
     });
 
@@ -254,13 +347,12 @@ export const AdminDashboard: React.FC<Props> = ({
         const records = parseSpreadsheetRows(text);
         setBulkPreview(records);
       } else if (ext === 'xlsx' || ext === 'xls') {
-        // Attempt text extraction or prompt CSV export if binary XLSX library is not installed
         const buffer = await file.arrayBuffer();
         const decoder = new TextDecoder('utf-8', { fatal: false });
         const rawText = decoder.decode(buffer);
         if (rawText.startsWith('PK')) {
           setBulkError(
-            'Binary .xlsx detected. Please save your Excel spreadsheet as "CSV (Comma delimited) (*.csv)" before uploading, or install the "xlsx" parser package.'
+            'Binary .xlsx detected. Save your Excel sheet as "CSV (Comma delimited) (*.csv)" to parse cleanly in the browser.'
           );
           return;
         }
@@ -274,35 +366,63 @@ export const AdminDashboard: React.FC<Props> = ({
     }
   };
 
-  const handleConfirmBulkImport = () => {
+  const handleConfirmBulkImport = async () => {
     if (bulkPreview.length === 0) return;
+    setIsImporting(true);
+    setBulkError('');
 
-    bulkPreview.forEach((record) => {
-      createUser({
-        name: record.name,
-        email: record.email,
-        role: record.role,
-        department: record.department,
-        isActive: true,
-      });
+    try {
+      const result = await bulkImportUsers(bulkPreview, { onDuplicate });
+      setProvisionedReport(result.created);
+      setBulkPreview([]);
+      setBulkFileName('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      setIsCreateModalOpen(false);
+      setSuccessMsg(
+        `Bulk import complete: ${result.created.length} created, ${result.updated.length} updated, ${result.skipped.length} skipped.`
+      );
+      setTimeout(() => setSuccessMsg(''), 6000);
+    } catch (err: unknown) {
+      setBulkError(err instanceof Error ? err.message : 'Bulk import failed.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleDownloadCredentialsCsv = () => {
+    if (provisionedReport.length === 0) return;
+    const header = 'student_id,name,email,role,department,temporary_password,must_change_password';
+    const rows = provisionedReport.map((u) =>
+      [
+        u.studentId || '',
+        `"${u.name.replace(/"/g, '""')}"`,
+        u.email,
+        u.role,
+        u.department || '',
+        u.tempPassword,
+        'true',
+      ].join(',')
+    );
+    const blob = new Blob([[header, ...rows].join('\n')], {
+      type: 'text/csv;charset=utf-8;',
     });
-
-    const count = bulkPreview.length;
-    setBulkPreview([]);
-    setBulkFileName('');
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    setIsCreateModalOpen(false);
-    setSuccessMsg(`Successfully provisioned ${count} institutional account${count === 1 ? '' : 's'} via bulk upload.`);
-    setTimeout(() => setSuccessMsg(''), 5000);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'provisioned_temp_credentials.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleDownloadSampleCsv = () => {
     const sampleCsv = [
-      'name,email,role,department',
-      'Thabo Mthethwa,thabo.mthethwa@college.ac.sz,STUDENT,SOFTWARE_ENGINEERING',
-      'Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY',
-      'Sipho Nkosi,sipho.nkosi@college.ac.sz,STUDENT,MULTIMEDIA',
-      'Dr. B. Zwane,b.zwane@college.ac.sz,INSTRUCTOR,SOFTWARE_ENGINEERING',
+      'student_id,name,email,role,department',
+      'STU-2026-101,Thabo Mthethwa,thabo.mthethwa@college.ac.sz,STUDENT,SOFTWARE_ENGINEERING',
+      'STU-2026-102,Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY',
+      'STU-2026-103,Sipho Nkosi,sipho.nkosi@college.ac.sz,STUDENT,MULTIMEDIA',
+      'STF-2026-201,Dr. B. Zwane,b.zwane@college.ac.sz,INSTRUCTOR,SOFTWARE_ENGINEERING',
     ].join('\n');
 
     const blob = new Blob([sampleCsv], { type: 'text/csv;charset=utf-8;' });
@@ -337,7 +457,6 @@ export const AdminDashboard: React.FC<Props> = ({
 
   return (
     <div className="repo-page">
-      {/* Shared PortalHeader Component */}
       <PortalHeader
         appName="Digital Resource Library"
         workspaceName="System Administration Workspace"
@@ -351,13 +470,12 @@ export const AdminDashboard: React.FC<Props> = ({
 
       <main className="repo-main" style={{ marginTop: '24px' }}>
         <div className="repo-content">
-          {/* Page Header aligned with RepositoryContent */}
           <div className="repo-heading">
             <div>
               <small>SYSTEM ADMINISTRATION · ACCESS CONTROL</small>
               <h2>User Directory &amp; Role Management</h2>
               <p>
-                Provision individual or bulk institutional accounts, assign role-based privileges, and manage active access.
+                Provision individual or bulk institutional accounts with temporary passwords and first-login password enforcement.
               </p>
             </div>
             <div className="repo-heading-right">
@@ -400,7 +518,60 @@ export const AdminDashboard: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Filter Bar Panel aligned with DocumentFilters */}
+          {/* One-Time Temporary Credentials Handout Panel */}
+          {provisionedReport.length > 0 && (
+            <section className="repo-panel">
+              <div className="repo-panel-head">
+                <strong>
+                  <KeyRound size={15} aria-hidden="true" /> NEWLY CREATED TEMPORARY CREDENTIALS ({provisionedReport.length})
+                </strong>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={handleDownloadCredentialsCsv}
+                    style={{ minHeight: '24px', fontSize: '10px', padding: '0 8px' }}
+                  >
+                    <Download size={12} /> Download CSV
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setProvisionedReport([])}
+                    style={{ minHeight: '24px', fontSize: '10px', padding: '0 8px' }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+              <div className="repo-table-wrap" style={{ maxHeight: '180px' }}>
+                <table className="repo-table">
+                  <thead>
+                    <tr>
+                      <th>Student ID</th>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Temporary Password</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {provisionedReport.map((item) => (
+                      <tr key={item.id}>
+                        <td><code>{item.studentId || '—'}</code></td>
+                        <td><strong>{item.name}</strong></td>
+                        <td>{item.email}</td>
+                        <td>{formatRoleLabel(item.role)}</td>
+                        <td><code>{item.tempPassword}</code></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Filter Bar Panel */}
           <section className="repo-panel">
             <div className="repo-panel-head">
               <strong>
@@ -439,7 +610,7 @@ export const AdminDashboard: React.FC<Props> = ({
                   <input
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Name, email, user ID or department..."
+                    placeholder="Student ID, name, email or department..."
                   />
                 </div>
               </label>
@@ -469,7 +640,6 @@ export const AdminDashboard: React.FC<Props> = ({
               </span>
             </div>
 
-            {/* Bulk Selection Toolbar */}
             {selectedUsers.length > 0 && (
               <div className="repo-selection-toolbar" aria-live="polite">
                 <div className="repo-selection-summary">
@@ -500,7 +670,6 @@ export const AdminDashboard: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Structured Data Table */}
             <div className="repo-table-wrap">
               <table className="repo-table">
                 <thead>
@@ -587,9 +756,13 @@ export const AdminDashboard: React.FC<Props> = ({
                             </span>
                             <span>
                               <b className="resource-title">{u.name}</b>
-                              <span className="course-title">{u.email}</span>
+                              <span className="course-title">
+                                {u.studentId ? `${u.studentId} · ` : ''}
+                                {u.email}
+                              </span>
                               <small>
                                 {u.id.toUpperCase()} · Created {u.createdAt}
+                                {u.mustChangePassword ? ' · Must change password' : ''}
                               </small>
                             </span>
                           </div>
@@ -665,7 +838,7 @@ export const AdminDashboard: React.FC<Props> = ({
         </div>
       </main>
 
-      {/* On-Demand Provision Account Modal (Single Entry & Bulk CSV/Excel Import) */}
+      {/* Provision Account Modal (Single Entry & Bulk CSV/Excel Import) */}
       {isCreateModalOpen && (
         <div
           className="modal-backdrop"
@@ -675,7 +848,7 @@ export const AdminDashboard: React.FC<Props> = ({
         >
           <section
             className="repo-modal"
-            style={{ width: 'min(640px, 100%)' }}
+            style={{ width: 'min(680px, 100%)' }}
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-modal-title"
@@ -686,7 +859,6 @@ export const AdminDashboard: React.FC<Props> = ({
                 ACCOUNT PROVISIONING · RBAC
               </strong>
 
-              {/* Mode Switcher Tabs matching DocumentPreviewModal */}
               <div className="repo-modal-tabs" role="group" aria-label="Provisioning mode">
                 <button
                   type="button"
@@ -719,10 +891,48 @@ export const AdminDashboard: React.FC<Props> = ({
                   <small>INDIVIDUAL PROVISIONING</small>
                   <h2>Create Institutional Account</h2>
                   <p>
-                    Register a single student, instructor, or administrator account and assign role privileges.
+                    Create a student, instructor, or admin account. Users must set a new password on first sign-in.
                   </p>
 
+                  {singleError && (
+                    <div
+                      role="alert"
+                      style={{
+                        marginTop: '12px',
+                        padding: '8px 10px',
+                        background: '#FEF2F2',
+                        border: '1px solid #FECACA',
+                        color: '#B91C1C',
+                        fontSize: '11px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                      <span>{singleError}</span>
+                    </div>
+                  )}
+
                   <form id="single-user-form" onSubmit={handleCreateUser} className="space-y-4 mt-4">
+                    <div>
+                      <label
+                        htmlFor="modal-user-student-id"
+                        className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
+                      >
+                        Student ID {role === 'STUDENT' ? '(Required)' : '(Optional)'}
+                      </label>
+                      <input
+                        id="modal-user-student-id"
+                        type="text"
+                        required={role === 'STUDENT'}
+                        placeholder="e.g. STU-2026-105"
+                        className="h-[36px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px] focus:outline-2 focus:outline-[#C8D8F0] focus:border-[#1E5F9A]"
+                        value={studentId}
+                        onChange={(e) => setStudentId(e.target.value)}
+                      />
+                    </div>
+
                     <div>
                       <label
                         htmlFor="modal-user-name"
@@ -756,6 +966,23 @@ export const AdminDashboard: React.FC<Props> = ({
                         className="h-[36px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px] focus:outline-2 focus:outline-[#C8D8F0] focus:border-[#1E5F9A]"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="modal-user-temp-pass"
+                        className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
+                      >
+                        Temporary Password (Optional · defaults to password123)
+                      </label>
+                      <input
+                        id="modal-user-temp-pass"
+                        type="text"
+                        placeholder="Leave blank to use default temporary password"
+                        className="h-[36px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px] focus:outline-2 focus:outline-[#C8D8F0] focus:border-[#1E5F9A]"
+                        value={tempPasswordInput}
+                        onChange={(e) => setTempPasswordInput(e.target.value)}
                       />
                     </div>
 
@@ -805,41 +1032,207 @@ export const AdminDashboard: React.FC<Props> = ({
                   <small>BATCH ENROLLMENT · CSV / EXCEL IMPORT</small>
                   <h2>Bulk Account Provisioning</h2>
                   <p>
-                    Upload a CSV or Excel spreadsheet containing existing college student or faculty rosters to create hundreds of accounts at once.
+                    Upload a CSV or Excel roster with student IDs, names, emails, and roles. New accounts get a temporary password and must change it on first login.
                   </p>
 
-                  {/* Template Format Reference Box */}
-                  <div className="topics" style={{ marginTop: '14px', marginBottom: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <b>EXPECTED SPREADSHEET COLUMNS (ROW 1 HEADERS)</b>
+                  {/* Real Excel-Style Spreadsheet Template Grid */}
+                  <div
+                    style={{
+                      marginTop: '14px',
+                      marginBottom: '16px',
+                      border: '1px solid #B4C6D8',
+                      borderRadius: '2px',
+                      background: '#FFFFFF',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '6px 10px',
+                        background: '#1E6B43',
+                        color: '#FFFFFF',
+                        fontSize: '10px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
+                        <FileSpreadsheet size={13} />
+                        <span>roster_template.xlsx — Sheet1 (Row 1 = Headers)</span>
+                      </div>
                       <button
                         type="button"
-                        className="secondary"
                         onClick={handleDownloadSampleCsv}
-                        style={{ minHeight: '24px', fontSize: '9px', padding: '0 8px' }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          height: '22px',
+                          padding: '0 8px',
+                          background: '#FFFFFF',
+                          color: '#1E6B43',
+                          border: '1px solid #145332',
+                          borderRadius: '2px',
+                          fontSize: '9px',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                        }}
                       >
                         <Download size={11} /> Download CSV Template
                       </button>
                     </div>
-                    <pre
+
+                    <div
                       style={{
-                        margin: 0,
-                        padding: '8px',
-                        background: '#FFFFFF',
-                        border: '1px solid #CBD5E1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '4px 8px',
+                        background: '#F3F6F9',
+                        borderBottom: '1px solid #CBD5E1',
                         fontSize: '10px',
                         fontFamily: 'Consolas, monospace',
-                        color: '#0F172A',
-                        overflowX: 'auto',
+                        color: '#475569',
                       }}
                     >
-{`name,email,role,department
-Thabo Mthethwa,thabo.mthethwa@college.ac.sz,STUDENT,SOFTWARE_ENGINEERING
-Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY`}
-                    </pre>
+                      <span
+                        style={{
+                          padding: '1px 6px',
+                          background: '#FFFFFF',
+                          border: '1px solid #CBD5E1',
+                          fontWeight: 'bold',
+                          color: '#0F172A',
+                        }}
+                      >
+                        A1
+                      </span>
+                      <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>fx</span>
+                      <span>student_id</span>
+                    </div>
+
+                    <div style={{ width: '100%', overflowX: 'auto' }}>
+                      <table
+                        style={{
+                          width: '100%',
+                          borderCollapse: 'collapse',
+                          fontSize: '10px',
+                          fontFamily: 'Consolas, monospace',
+                          color: '#0F172A',
+                        }}
+                      >
+                        <thead>
+                          <tr style={{ background: '#E6ECF2', color: '#475569', textAlign: 'center' }}>
+                            <th
+                              style={{
+                                width: '28px',
+                                padding: '4px',
+                                borderRight: '1px solid #CBD5E1',
+                                borderBottom: '1px solid #CBD5E1',
+                                background: '#DCE4EC',
+                              }}
+                            />
+                            {['A', 'B', 'C', 'D', 'E'].map((colLetter) => (
+                              <th
+                                key={colLetter}
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRight: '1px solid #CBD5E1',
+                                  borderBottom: '1px solid #CBD5E1',
+                                  fontWeight: 'bold',
+                                }}
+                              >
+                                {colLetter}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr style={{ background: '#EDF7F1', fontWeight: 'bold', color: '#145332' }}>
+                            <td
+                              style={{
+                                textAlign: 'center',
+                                padding: '5px 4px',
+                                background: '#E6ECF2',
+                                color: '#475569',
+                                borderRight: '1px solid #CBD5E1',
+                                borderBottom: '1px solid #CBD5E1',
+                              }}
+                            >
+                              1
+                            </td>
+                            <td style={{ padding: '5px 8px', borderRight: '1px solid #CBD5E1', borderBottom: '1px solid #CBD5E1' }}>
+                              student_id
+                            </td>
+                            <td style={{ padding: '5px 8px', borderRight: '1px solid #CBD5E1', borderBottom: '1px solid #CBD5E1' }}>
+                              name
+                            </td>
+                            <td style={{ padding: '5px 8px', borderRight: '1px solid #CBD5E1', borderBottom: '1px solid #CBD5E1' }}>
+                              email
+                            </td>
+                            <td style={{ padding: '5px 8px', borderRight: '1px solid #CBD5E1', borderBottom: '1px solid #CBD5E1' }}>
+                              role
+                            </td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid #CBD5E1' }}>
+                              department
+                            </td>
+                          </tr>
+
+                          {EXCEL_SAMPLE_ROWS.map((sample) => (
+                            <tr key={sample.rowNum} style={{ background: '#FFFFFF' }}>
+                              <td
+                                style={{
+                                  textAlign: 'center',
+                                  padding: '5px 4px',
+                                  background: '#E6ECF2',
+                                  color: '#475569',
+                                  fontWeight: 'bold',
+                                  borderRight: '1px solid #CBD5E1',
+                                  borderBottom: '1px solid #E2E8F0',
+                                }}
+                              >
+                                {sample.rowNum}
+                              </td>
+                              <td style={{ padding: '5px 8px', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0', whiteSpace: 'nowrap' }}>
+                                {sample.studentId}
+                              </td>
+                              <td style={{ padding: '5px 8px', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0', whiteSpace: 'nowrap' }}>
+                                {sample.name}
+                              </td>
+                              <td style={{ padding: '5px 8px', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0', whiteSpace: 'nowrap' }}>
+                                {sample.email}
+                              </td>
+                              <td style={{ padding: '5px 8px', borderRight: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0', whiteSpace: 'nowrap' }}>
+                                {sample.role}
+                              </td>
+                              <td style={{ padding: '5px 8px', borderBottom: '1px solid #E2E8F0', whiteSpace: 'nowrap' }}>
+                                {sample.department}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
 
-                  {/* File Upload Dropzone / Input */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <label
+                      htmlFor="bulk-duplicate-mode"
+                      className="block text-[10px] font-bold text-[#475467] mb-1 uppercase tracking-wider"
+                    >
+                      Duplicate Account Handling
+                    </label>
+                    <select
+                      id="bulk-duplicate-mode"
+                      value={onDuplicate}
+                      onChange={(e) => setOnDuplicate(e.target.value as 'skip' | 'update')}
+                      className="h-[34px] w-full border border-[#AAB7C6] rounded-[2px] bg-white text-[#1E293B] text-[11px] px-[9px]"
+                    >
+                      <option value="skip">Skip existing accounts (by Student ID or Email)</option>
+                      <option value="update">Update existing profile details (keep existing password)</option>
+                    </select>
+                  </div>
+
                   <div>
                     <label
                       htmlFor="bulk-user-file"
@@ -873,7 +1266,7 @@ Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY`}
                         <span>{bulkFileName ? `Selected: ${bulkFileName}` : 'Choose CSV / Excel File'}</span>
                       </button>
                       <p style={{ margin: '8px 0 0', fontSize: '10px', color: '#64748B' }}>
-                        Role defaults to <code>STUDENT</code> and Department defaults to <code>SOFTWARE_ENGINEERING</code> if omitted.
+                        Extra columns in your spreadsheet are automatically saved in profileData.
                       </p>
                     </div>
                   </div>
@@ -897,7 +1290,6 @@ Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY`}
                     </div>
                   )}
 
-                  {/* Preview Parsed Records */}
                   {bulkPreview.length > 0 && (
                     <div style={{ marginTop: '14px' }}>
                       <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#003060', marginBottom: '6px' }}>
@@ -907,6 +1299,7 @@ Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY`}
                         <table className="repo-table">
                           <thead>
                             <tr>
+                              <th>Student ID</th>
                               <th>Name</th>
                               <th>Email</th>
                               <th>Role</th>
@@ -916,6 +1309,7 @@ Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY`}
                           <tbody>
                             {bulkPreview.slice(0, 50).map((row, i) => (
                               <tr key={`${row.email}-${i}`}>
+                                <td><code>{row.studentId || '—'}</code></td>
                                 <td><strong>{row.name}</strong></td>
                                 <td>{row.email}</td>
                                 <td><span className="category">{formatRoleLabel(row.role)}</span></td>
@@ -957,11 +1351,15 @@ Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY`}
                 <button
                   type="button"
                   className="primary"
-                  disabled={bulkPreview.length === 0}
+                  disabled={bulkPreview.length === 0 || isImporting}
                   onClick={handleConfirmBulkImport}
                 >
                   <Upload size={13} aria-hidden="true" />
-                  <span>Import {bulkPreview.length > 0 ? `${bulkPreview.length} Accounts` : 'Accounts'}</span>
+                  <span>
+                    {isImporting
+                      ? 'Importing...'
+                      : `Import ${bulkPreview.length > 0 ? `${bulkPreview.length} Accounts` : 'Accounts'}`}
+                  </span>
                 </button>
               )}
             </footer>

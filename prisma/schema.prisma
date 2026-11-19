@@ -2,41 +2,41 @@ generator client {
   provider = "prisma-client-js"
 }
 
-model Department {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String?
-  createdAt   DateTime @default(now())
-  courses     Course[]
-  
-  @@map("departments")
+
+
+enum Role {
+  STUDENT
+  LECTURER
+  ADMIN
 }
 
-model Course {
-  id          String   @id @default(uuid())
-  title       String
-  code        String   @unique
-  description String?
-  department  Department @relation(fields: [departmentId], references: [id])
-  departmentId String
-  credits     Int
-  createdAt   DateTime @default(now())
-  
-  documents   Document[]
-  
-  @@map("courses")
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
 }
 
-model Document {
-  id          String   @id @default(uuid())
-  name        String
-  filename    String
-  path        String
-  size        Int
-  mimeType    String
-  course      Course   @relation(fields: [courseId], references: [id])
-  courseId    String
-  uploadedAt  DateTime @default(now())
-  
-  @@map("documents")
+model User {
+  id                 String        @id @default(cuid())
+  studentId          String?       @unique
+  email              String        @unique
+  passwordHash       String
+  fullName           String
+  role               Role          @default(STUDENT)
+  status             AccountStatus @default(ACTIVE)
+  department         String?
+  program            String?
+  yearOfStudy        Int?
+  phone              String?
+  profileData        Json?
+  mustChangePassword Boolean       @default(true)
+  passwordChangedAt  DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([role])
+  @@index([status])
+  @@index([department])
 }
+
+

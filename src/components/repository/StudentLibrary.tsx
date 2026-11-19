@@ -6,10 +6,8 @@ import { useLibrary } from '@/context/LibraryContext';
 import { Department } from '@/types/elibrary';
 import type { RepositoryDocument } from '@/types/repository';
 import {
-  Search,
   LayoutGrid,
   List,
-  Filter,
   ShieldCheck,
   Lock,
 } from 'lucide-react';
@@ -17,6 +15,8 @@ import PortalHeader from './PortalHeader';
 import DocumentsTable from './DocumentsTable';
 import DocumentsGallery from './DocumentsGallery';
 import DocumentPreviewModal from './DocumentPreviewModal';
+import DocumentFilters from './DocumentFilters';
+import UserSettings from './UserSettings';
 
 type Props = {
   onSearch?: (query: string) => void;
@@ -42,6 +42,21 @@ const COURSE_METADATA: Record<Department, { code: string; title: string; label: 
   },
 };
 
+// Map between DocumentFilters labels and backend Department enum values
+const FILTER_TO_DEPT: Record<string, string> = {
+  'All Departments': 'ALL',
+  'Software Engineering': 'SOFTWARE_ENGINEERING',
+  'Cyber Security': 'CYBER_SECURITY',
+  'Multi Media': 'MULTIMEDIA',
+};
+
+const DEPT_TO_FILTER: Record<string, string> = {
+  ALL: 'All Departments',
+  SOFTWARE_ENGINEERING: 'Software Engineering',
+  CYBER_SECURITY: 'Cyber Security',
+  MULTIMEDIA: 'Multi Media',
+};
+
 export const StudentLibrary: React.FC<Props> = ({
   onSearch,
   onLogout,
@@ -50,8 +65,16 @@ export const StudentLibrary: React.FC<Props> = ({
   const { currentUser, logout } = useAuth();
   const { documents, incrementDownload } = useLibrary();
 
+  // View toggle between Library and User Settings
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Filter states aligned with DocumentFilters props
   const [searchQuery, setSearchQuery] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState<string>(currentUser?.department || 'ALL');
+  const [departmentFilter, setDepartmentFilter] = useState<string>(
+    currentUser?.department ? DEPT_TO_FILTER[currentUser.department] || 'All Departments' : 'All Departments'
+  );
+  const [categoryFilter, setCategoryFilter] = useState<string>('All Categories');
+
   const [viewMode, setViewMode] = useState<'table' | 'gallery'>('gallery');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -59,27 +82,56 @@ export const StudentLibrary: React.FC<Props> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [previewDoc, setPreviewDoc] = useState<RepositoryDocument | null>(null);
 
-  // Filter documents based on RBAC & department access
+  // Enforce RBAC lock when a student tries to change department
+  const handleDepartmentChange = (selectedLabel: string) => {
+    if (currentUser?.role === 'STUDENT' && currentUser.department) {
+      setDepartmentFilter(DEPT_TO_FILTER[currentUser.department] || selectedLabel);
+      return;
+    }
+    setDepartmentFilter(selectedLabel);
+  };
+
+  // Filter documents based on RBAC, department, category, and search query
   const filteredDocuments = useMemo(() => {
+    const mappedDeptEnum = FILTER_TO_DEPT[departmentFilter] || 'ALL';
+
     return documents.filter((doc) => {
+      // 1. Strict RBAC enforcement for students
       if (currentUser?.role === 'STUDENT' && doc.department !== currentUser.department) {
         return false;
       }
-      if (departmentFilter !== 'ALL' && doc.department !== departmentFilter) {
+
+      // 2. Department filter
+      if (mappedDeptEnum !== 'ALL' && doc.department !== mappedDeptEnum) {
         return false;
       }
-      const q = searchQuery.trim().toLowerCase();
+
+      // 3. Category filter
+      const docCategory = (doc as any).category || 'Course PDF';
       if (
-        q &&
-        !doc.title.toLowerCase().includes(q) &&
-        !doc.description.toLowerCase().includes(q) &&
-        !doc.id.toLowerCase().includes(q)
+        categoryFilter !== 'All Categories' &&
+        docCategory.toLowerCase() !== categoryFilter.toLowerCase()
       ) {
         return false;
       }
+
+      // 4. Keyword / course code / ID search
+      const q = searchQuery.trim().toLowerCase();
+      if (q) {
+        const meta = COURSE_METADATA[doc.department as Department];
+        const matchesTitle = doc.title.toLowerCase().includes(q);
+        const matchesDesc = doc.description.toLowerCase().includes(q);
+        const matchesId = doc.id.toLowerCase().includes(q);
+        const matchesCode = meta?.code.toLowerCase().includes(q);
+
+        if (!matchesTitle && !matchesDesc && !matchesId && !matchesCode) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [documents, currentUser, departmentFilter, searchQuery]);
+  }, [documents, currentUser, departmentFilter, categoryFilter, searchQuery]);
 
   // Map to RepositoryDocument shape required by shared views
   const mappedDocuments: RepositoryDocument[] = useMemo(() => {
@@ -133,6 +185,16 @@ export const StudentLibrary: React.FC<Props> = ({
       .join(' ');
   };
 
+  // Render UserSettings screen when toggled
+  if (showSettings) {
+    return (
+      <UserSettings
+        onBack={() => setShowSettings(false)}
+        onLogout={onLogout || logout}
+      />
+    );
+  }
+
   return (
     <div className="repo-page">
       {/* Shared PortalHeader Component */}
@@ -146,7 +208,7 @@ export const StudentLibrary: React.FC<Props> = ({
           onSearch?.(q);
         }}
         onLogout={onLogout || logout}
-        onSettings={onNavigateHome}
+        onSettings={() => setShowSettings(true)}
       />
 
       <main className="repo-main" style={{ marginTop: '24px' }}>
@@ -202,53 +264,15 @@ export const StudentLibrary: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Filter Bar Panel */}
-          <section className="repo-panel">
-            <div className="repo-panel-head">
-              <strong>
-                <Filter size={15} aria-hidden="true" /> SEARCH &amp; DEPARTMENT FILTERS
-              </strong>
-              <span>RBAC ENFORCED: {formatDeptName(currentUser?.department).toUpperCase()}</span>
-            </div>
-            <div className="repo-filters">
-              <label>
-                <span>Department group</span>
-                <select
-                  value={departmentFilter}
-                  onChange={(e) => setDepartmentFilter(e.target.value)}
-                  disabled={currentUser?.role === 'STUDENT'}
-                >
-                  <option value="ALL">All Accessible Departments</option>
-                  <option value="SOFTWARE_ENGINEERING">Software Engineering</option>
-                  <option value="CYBER_SECURITY">Cyber Security</option>
-                  <option value="MULTIMEDIA">Multimedia</option>
-                </select>
-              </label>
-
-              <label className="repo-search" style={{ gridColumn: 'span 2' }}>
-                <span>Search library resources</span>
-                <div>
-                  <Search size={15} aria-hidden="true" />
-                  <input
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search documents by title, description or keyword..."
-                  />
-                </div>
-              </label>
-
-              <button
-                type="button"
-                className="repo-reset"
-                onClick={() => {
-                  setDepartmentFilter(currentUser?.department || 'ALL');
-                  setSearchQuery('');
-                }}
-              >
-                Reset filters
-              </button>
-            </div>
-          </section>
+          {/* Reusable DocumentFilters Component */}
+          <DocumentFilters
+            department={departmentFilter}
+            category={categoryFilter}
+            query={searchQuery}
+            setDepartment={handleDepartmentChange}
+            setCategory={setCategoryFilter}
+            setQuery={setSearchQuery}
+          />
 
           {/* Documents Table or Gallery View */}
           {filteredDocuments.length === 0 ? (
@@ -259,7 +283,7 @@ export const StudentLibrary: React.FC<Props> = ({
                   No Accessible Documents Found
                 </h3>
                 <p style={{ margin: 0, color: '#64748B', fontSize: '11px', maxWidth: '420px', marginInline: 'auto' }}>
-                  You can only view and download resources assigned to your department group ({formatDeptName(currentUser?.department)}). Contact your instructor if additional course PDFs are required.
+                  No documents match your active filters within your department group ({formatDeptName(currentUser?.department)}). Try resetting filters or contact your instructor.
                 </p>
               </div>
             </section>

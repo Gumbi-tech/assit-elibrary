@@ -2,18 +2,46 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { User, ArrowRight, Command } from 'lucide-react';
+import { User, Lock, ArrowRight, Command } from 'lucide-react';
 
 export const LoginScreen: React.FC = () => {
   const { login, users } = useAuth();
   const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = login(identifier);
-    if (!success) {
-      setError('Account not found or inactive. Verify your User ID or work email, or select a workspace role below.');
+    setError('');
+    setIsSubmitting(true);
+
+    try {
+      const result = await login(identifier, password);
+      if (!result.ok) {
+        setError(
+          result.error ||
+            'Account not found or inactive. Verify your Student ID or work email and password.'
+        );
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSandboxLaunch = async (email: string, userPassword?: string) => {
+    setError('');
+    setIdentifier(email);
+    const pwd = userPassword || 'password123';
+    setPassword(pwd);
+    setIsSubmitting(true);
+    try {
+      const result = await login(email, pwd);
+      if (!result.ok) {
+        setError(result.error || 'Unable to launch sandbox user.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -33,7 +61,6 @@ export const LoginScreen: React.FC = () => {
       }}
     >
       <div style={{ width: '100%', maxWidth: '380px' }}>
-        {/* Product-Neutral SaaS Application Identity */}
         <div style={{ marginBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
             <div
@@ -72,12 +99,13 @@ export const LoginScreen: React.FC = () => {
             Workspace Sign In
           </h1>
           <p style={{ margin: 0, fontSize: '12px', color: '#475467', lineHeight: 1.4 }}>
-            Authenticate to access your organization&apos;s indexed documents, courseware, and reference archives.
+            Sign in using your Student ID or institutional email address and password.
           </p>
         </div>
 
         {error && (
           <div
+            role="alert"
             style={{
               marginBottom: '14px',
               padding: '8px 10px',
@@ -92,7 +120,6 @@ export const LoginScreen: React.FC = () => {
           </div>
         )}
 
-        {/* Borderless Form Container on Workspace Background */}
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
             <label
@@ -103,7 +130,7 @@ export const LoginScreen: React.FC = () => {
                 color: '#334155',
               }}
             >
-              User ID or Institutional Email
+              Student ID or Institutional Email
             </label>
             <div
               style={{
@@ -122,7 +149,7 @@ export const LoginScreen: React.FC = () => {
                 id="login-identifier"
                 type="text"
                 required
-                placeholder="e.g. usr-1 or name@organization.org"
+                placeholder="e.g. STU-2026-004 or name@college.ac.sz"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 style={{
@@ -138,8 +165,53 @@ export const LoginScreen: React.FC = () => {
             </div>
           </div>
 
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label
+              htmlFor="login-password"
+              style={{
+                fontSize: '11px',
+                fontWeight: 'bold',
+                color: '#334155',
+              }}
+            >
+              Password
+            </label>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                height: '34px',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #AAB7C6',
+                borderRadius: '2px',
+                padding: '0 10px',
+                gap: '8px',
+              }}
+            >
+              <Lock size={14} style={{ color: '#64748B', flexShrink: 0 }} />
+              <input
+                id="login-password"
+                type="password"
+                required
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{
+                  width: '100%',
+                  border: 0,
+                  outline: 0,
+                  background: 'transparent',
+                  fontSize: '12px',
+                  color: '#0F172A',
+                  fontFamily: 'Arial, Helvetica, sans-serif',
+                }}
+              />
+            </div>
+          </div>
+
           <button
             type="submit"
+            disabled={isSubmitting}
             style={{
               height: '32px',
               width: '100%',
@@ -154,15 +226,15 @@ export const LoginScreen: React.FC = () => {
               color: '#FFFFFF',
               fontSize: '11px',
               fontWeight: 'bold',
-              cursor: 'pointer',
+              cursor: isSubmitting ? 'not-allowed' : 'pointer',
+              opacity: isSubmitting ? 0.75 : 1,
             }}
           >
-            <span>Sign In</span>
+            <span>{isSubmitting ? 'Signing In...' : 'Sign In'}</span>
             <ArrowRight size={13} />
           </button>
         </form>
 
-        {/* Compact Quick Role Selector */}
         <div
           style={{
             marginTop: '20px',
@@ -188,10 +260,7 @@ export const LoginScreen: React.FC = () => {
               <button
                 key={u.id}
                 type="button"
-                onClick={() => {
-                  setIdentifier(u.email);
-                  login(u.email);
-                }}
+                onClick={() => handleSandboxLaunch(u.email, u.password)}
                 style={{
                   width: '100%',
                   display: 'flex',
@@ -209,7 +278,15 @@ export const LoginScreen: React.FC = () => {
                   <strong style={{ display: 'block', fontSize: '11px', color: '#1B365D' }}>
                     {u.name}
                   </strong>
-                  <span style={{ display: 'block', fontSize: '10px', color: '#64748B', fontFamily: 'Consolas, monospace' }}>
+                  <span
+                    style={{
+                      display: 'block',
+                      fontSize: '10px',
+                      color: '#64748B',
+                      fontFamily: 'Consolas, monospace',
+                    }}
+                  >
+                    {u.studentId ? `${u.studentId} · ` : ''}
                     {u.role} {u.department ? `(${u.department.replace('_', ' ')})` : ''}
                   </span>
                 </div>
