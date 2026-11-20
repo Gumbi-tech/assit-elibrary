@@ -67,30 +67,7 @@ export default function DocumentPreviewModal({ document, onClose, onDownload }: 
         <div className="modal-body repo-modal-scrollable">
           {activeTab === "reader" ? (
             <div className="pdf-reader-container">
-              <div className="pdf-reader-toolbar">
-                <span className="pdf-reader-page-indicator" id="modal-title">
-                  {document.title} ({document.pages} {document.pages === 1 ? "Page" : "Pages"})
-                </span>
-                <div className="pdf-reader-zoom-controls">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setZoomLevel((prev) => Math.max(75, prev - 25))}
-                    title="Zoom out"
-                  >
-                    <ZoomOut size={13} />
-                  </button>
-                  <span>{zoomLevel}%</span>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setZoomLevel((prev) => Math.min(150, prev + 25))}
-                    title="Zoom in"
-                  >
-                    <ZoomIn size={13} />
-                  </button>
-                </div>
-              </div>
+             
 
               <div
                 className="pdf-page-canvas"
