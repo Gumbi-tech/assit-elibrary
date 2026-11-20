@@ -760,11 +760,10 @@ export const AdminDashboard: React.FC<Props> = ({
         <div className="repo-content">
           <div className="repo-heading">
             <div>
-              <small>SYSTEM ADMINISTRATION · ACCESS CONTROL</small>
+              <small></small>
               <h2>User Directory &amp; Role Management</h2>
               <p>
-                Provision individual or bulk institutional accounts with temporary passwords and first-login password enforcement.
-              </p>
+             </p>
             </div>
             <div className="repo-heading-right">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -1670,8 +1669,8 @@ export const AdminDashboard: React.FC<Props> = ({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <strong style={{ fontSize: '12px' }}>Existing Departments</strong>
-                      <span className="repo-count"><strong>{academicDepartments.length}</strong><span>DEPARTMENTS</span></span>
+                      <strong style={{ fontSize: '12px' }}></strong>
+                      <span className="repo-count"></span>
                     </div>
                     {!isDepartmentFormOpen && (
                       <button
@@ -1777,8 +1776,8 @@ export const AdminDashboard: React.FC<Props> = ({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <strong style={{ fontSize: '12px' }}>Existing Courses</strong>
-                      <span className="repo-count"><strong>{academicCourses.length}</strong><span>COURSES</span></span>
+                      <strong style={{ fontSize: '12px' }}></strong>
+                      <span className="repo-count"></span>
                     </div>
                     {!isCourseFormOpen && (
                       <button

@@ -19,6 +19,22 @@ export interface CourseRecord {
   department?: { id: string; name: string; code: string | null };
 }
 
+// export interface DocumentRecord {
+//   id: string;
+//   name: string;
+//   filename: string;
+//   path: string;
+//   size: number;
+//   mimeType: string;
+//   category: string | null;
+//   courseId: string | null;
+//   departmentId: string | null;
+//   createdAt: string;
+//   course?: { id: string; title: string; code: string } | null;
+//   department?: { id: string; name: string; code: string | null } | null;
+// }
+
+
 export interface DocumentRecord {
   id: string;
   name: string;
@@ -30,7 +46,12 @@ export interface DocumentRecord {
   courseId: string | null;
   departmentId: string | null;
   createdAt: string;
-  course?: { id: string; title: string; code: string } | null;
+  course?: {
+    id: string;
+    title: string;
+    code: string;
+    departmentId?: string;
+  } | null;
   department?: { id: string; name: string; code: string | null } | null;
 }
 
@@ -185,6 +206,88 @@ export async function deleteCourseRequest(id: string): Promise<{
   return { ok: true };
 }
 
+
+
+
+export async function updateDocumentRequest(
+  id: string,
+  payload: {
+    name?: string;
+    category?: string | null;
+    courseId?: string | null;
+    departmentId?: string | null;
+  }
+): Promise<{
+  ok: boolean;
+  document?: DocumentRecord;
+  error?: string;
+}> {
+  const res = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getClientUserHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    return { ok: false, error: data.error || 'Failed to update document.' };
+  }
+  return { ok: true, document: data.document };
+}
+
+
+//-------------------------------------------------
+function getClientUserHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem('elibrary_current_user');
+    if (!raw) return {};
+    return {
+      'x-elibrary-user': encodeURIComponent(raw),
+    };
+  } catch {
+    return {};
+  }
+}
+
+export async function fetchAuthorizedDocumentBlobUrl(
+  url: string
+): Promise<{ ok: boolean; blobUrl?: string; error?: string }> {
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'include',
+      headers: {
+        ...getClientUserHeaders(),
+      },
+    });
+
+    if (!res.ok) {
+      let message = 'Unauthorized or failed to load document.';
+      try {
+        const data = await res.json();
+        if (data?.error) message = data.error;
+      } catch {
+        // ignore non-JSON error body
+      }
+      return { ok: false, error: message };
+    }
+
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    return { ok: true, blobUrl };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Unable to fetch document stream.',
+    };
+  }
+}
+
 export async function fetchDocumentsRequest(filters?: {
   courseId?: string;
   departmentId?: string;
@@ -198,7 +301,13 @@ export async function fetchDocumentsRequest(filters?: {
   if (filters?.departmentId) params.set('departmentId', filters.departmentId);
   const qs = params.toString() ? `?${params.toString()}` : '';
 
-  const res = await fetch(`/api/documents${qs}`, { cache: 'no-store' });
+  const res = await fetch(`/api/documents${qs}`, {
+    cache: 'no-store',
+    credentials: 'include',
+    headers: {
+      ...getClientUserHeaders(),
+    },
+  });
   const data = await res.json();
   if (!res.ok || !data.ok) {
     return { ok: false, error: data.error || 'Failed to load documents.' };
@@ -228,6 +337,10 @@ export async function uploadDocumentRequest(payload: {
 
   const res = await fetch('/api/documents', {
     method: 'POST',
+    credentials: 'include',
+    headers: {
+      ...getClientUserHeaders(),
+    },
     body: formData,
   });
   const data = await res.json();
@@ -235,4 +348,24 @@ export async function uploadDocumentRequest(payload: {
     return { ok: false, error: data.error || 'Failed to upload document.' };
   }
   return { ok: true, document: data.document };
+}
+
+//-----------------------------------
+
+export async function deleteDocumentRequest(id: string): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  const res = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: {
+      ...getClientUserHeaders(),
+    },
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    return { ok: false, error: data.error || 'Failed to delete document.' };
+  }
+  return { ok: true };
 }

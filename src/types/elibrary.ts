@@ -1,4 +1,4 @@
-export type Role = 'SYSTEM_ADMIN' | 'INSTRUCTOR' | 'STUDENT';
+export type Role = 'SYSTEM_ADMIN' | 'INSTRUCTOR' | 'STUDENT' | 'LECTURER';
 export type Department = 'SOFTWARE_ENGINEERING' | 'CYBER_SECURITY' | 'MULTIMEDIA';
 
 export interface User {

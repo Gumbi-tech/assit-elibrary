@@ -82,7 +82,7 @@ const EXCEL_SAMPLE_ROWS = [
     studentId: 'STF-2026-201',
     name: 'Dr. B. Zwane',
     email: 'b.zwane@college.ac.sz',
-    role: 'INSTRUCTOR',
+    role: 'LECTURER',
     department: 'MULTIMEDIA',
   },
 ];
@@ -543,7 +543,7 @@ export const AdminDashboard: React.FC<Props> = ({
       'STU-2026-101,Thabo Mthethwa,thabo.mthethwa@college.ac.sz,STUDENT,SOFTWARE_ENGINEERING',
       'STU-2026-102,Zanele Dlamini,zanele.dlamini@college.ac.sz,STUDENT,CYBER_SECURITY',
       'STU-2026-103,Sipho Nkosi,sipho.nkosi@college.ac.sz,STUDENT,MULTIMEDIA',
-      'STF-2026-201,Dr. B. Zwane,b.zwane@college.ac.sz,INSTRUCTOR,SOFTWARE_ENGINEERING',
+      'STF-2026-201,Dr. B. Zwane,b.zwane@college.ac.sz,LECTURER,SOFTWARE_ENGINEERING',
     ].join('\n');
 
     const blob = new Blob([sampleCsv], { type: 'text/csv;charset=utf-8;' });

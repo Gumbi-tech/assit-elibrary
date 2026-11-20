@@ -5,7 +5,7 @@ import { Download, FileText, X, BookOpen, Info, ZoomIn, ZoomOut } from "lucide-r
 import type { RepositoryDocument } from "@/types/repository";
 
 type Props = {
-  document: RepositoryDocument | null;
+  document: (RepositoryDocument & { previewUrl?: string }) | null;
   onClose: () => void;
   onDownload?: (doc: RepositoryDocument) => void;
 };
@@ -68,8 +68,8 @@ export default function DocumentPreviewModal({ document, onClose, onDownload }: 
           {activeTab === "reader" ? (
             <div className="pdf-reader-container">
               <div className="pdf-reader-toolbar">
-                <span className="pdf-reader-page-indicator">
-                  Document Reader ({document.pages} Pages)
+                <span className="pdf-reader-page-indicator" id="modal-title">
+                  {document.title} ({document.pages} {document.pages === 1 ? "Page" : "Pages"})
                 </span>
                 <div className="pdf-reader-zoom-controls">
                   <button
@@ -94,33 +94,46 @@ export default function DocumentPreviewModal({ document, onClose, onDownload }: 
 
               <div
                 className="pdf-page-canvas"
-                style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: "top center" }}
+                style={{
+                  transform: `scale(${zoomLevel / 100})`,
+                  transformOrigin: "top center",
+                  width: "100%",
+                }}
               >
-                <div className="pdf-page-sheet">
-                  <div className="pdf-page-header-stamp">
-                    <span>{document.courseCode} — {document.department}</span>
-                    <span>{document.category}</span>
+                {document.previewUrl ? (
+                  <iframe
+                    src={document.previewUrl}
+                    title={document.title}
+                    style={{
+                      width: "100%",
+                      height: "70vh",
+                      border: "1px solid #CBD5E1",
+                      borderRadius: "2px",
+                      background: "#FFFFFF",
+                    }}
+                  />
+                ) : (
+                  <div className="pdf-page-sheet">
+                    <div className="pdf-page-header-stamp">
+                      <span>{document.courseCode} — {document.department}</span>
+                      <span>{document.category}</span>
+                    </div>
+                    <h1 className="pdf-document-title">{document.title}</h1>
+                    <p className="pdf-document-author">
+                      <b>Author:</b> {document.author} | <b>Uploaded:</b> {document.uploadDate} | <b>Size:</b> {document.size}
+                    </p>
+                    <div className="pdf-content-divider" />
+                    <div className="pdf-section-heading">Executive Summary &amp; Overview</div>
+                    <p className="pdf-body-text">{document.summary}</p>
+                    <div className="pdf-section-heading">Topics &amp; Syllabus Coverage</div>
+                    <div className="pdf-topics-box">
+                      <p>{document.topics}</p>
+                    </div>
+                    <p className="pdf-body-text" style={{ marginTop: "12px", color: "#64748B" }}>
+                      No direct PDF stream URL is attached to this record. Use Download PDF if available.
+                    </p>
                   </div>
-                  <h1 id="modal-title" className="pdf-document-title">{document.title}</h1>
-                  <p className="pdf-document-author">
-                    <b>Author:</b> {document.author} | <b>Uploaded:</b> {document.uploadDate} | <b>Size:</b> {document.size}
-                  </p>
-                  
-                  <div className="pdf-content-divider" />
-                  
-                  <div className="pdf-section-heading">Executive Summary &amp; Overview</div>
-                  <p className="pdf-body-text">{document.summary}</p>
-
-                  <div className="pdf-section-heading">Topics &amp; Syllabus Coverage</div>
-                  <div className="pdf-topics-box">
-                    <p>{document.topics}</p>
-                  </div>
-
-                  <div className="pdf-section-heading">Document Content Stream</div>
-                  <p className="pdf-body-text">
-                    [Simulated PDF Reader Render Stream active for {document.title}. This academic resource contains {document.pages} verified pages covering core curriculum requirements for {document.courseTitle}. Click Download PDF below to access the full offline document package.]
-                  </p>
-                </div>
+                )}
               </div>
             </div>
           ) : (

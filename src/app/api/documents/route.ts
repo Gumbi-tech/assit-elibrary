@@ -1,31 +1,51 @@
 // app/api/documents/route.ts
 import { NextResponse } from 'next/server';
-import { mkdir, writeFile } from 'fs/promises';
-import path from 'path';
-import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { getStorageProvider } from '@/lib/storage';
+import {
+  buildDocumentWhereClause,
+  getAccessContext,
+} from '@/lib/document-access';
 
-const UPLOAD_DIR = path.join(process.cwd(), 'storage', 'uploads');
-const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+const MAX_PDF_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+
+function isPdfFile(file: File): boolean {
+  const hasPdfMime = file.type === 'application/pdf';
+  const hasPdfExt = file.name.toLowerCase().endsWith('.pdf');
+  return hasPdfMime || hasPdfExt;
+}
 
 export async function GET(req: Request) {
   try {
+    const ctx = await getAccessContext();
+    if (!ctx) {
+      return NextResponse.json(
+        { ok: false, error: 'Unauthorized.' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const courseId = searchParams.get('courseId') || undefined;
     const departmentId = searchParams.get('departmentId') || undefined;
 
-    const documents = await prisma.document.findMany({
-      where: {
-        ...(courseId ? { courseId } : {}),
-        ...(departmentId ? { departmentId } : {}),
-      },
+    const where = buildDocumentWhereClause(ctx, { courseId, departmentId });
+    const storage = getStorageProvider();
+
+    const rows = await prisma.document.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       include: {
-        course: { select: { id: true, title: true, code: true } },
+        course: { select: { id: true, title: true, code: true, departmentId: true } },
         department: { select: { id: true, name: true, code: true } },
         uploadedBy: { select: { id: true, fullName: true, email: true } },
       },
     });
+
+    const documents = rows.map((doc) => ({
+      ...doc,
+      signedUrl: storage.createSignedUrl(doc.path, 300),
+    }));
 
     return NextResponse.json({ ok: true, documents });
   } catch (err) {
@@ -39,12 +59,32 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const ctx = await getAccessContext();
+    console.log('----------')
+    console.log('----------')
+    console.log(ctx)
+    console.log('----------')
+    console.log('----------')
+    if (!ctx) {
+      return NextResponse.json(
+        { ok: false, error: 'Unauthorized.' },
+        { status: 401 }
+      );
+    }
+
+    if (ctx.role === 'STUDENT') {
+      return NextResponse.json(
+        { ok: false, error: 'Students are not permitted to upload documents.' },
+        { status: 403 }
+      );
+    }
+
     const formData = await req.formData();
     const fileEntry = formData.get('file');
 
     if (!(fileEntry instanceof File)) {
       return NextResponse.json(
-        { ok: false, error: 'A valid file upload is required.' },
+        { ok: false, error: 'A valid PDF file upload is required.' },
         { status: 400 }
       );
     }
@@ -56,9 +96,16 @@ export async function POST(req: Request) {
       );
     }
 
-    if (fileEntry.size > MAX_FILE_SIZE_BYTES) {
+    if (fileEntry.size > MAX_PDF_SIZE_BYTES) {
       return NextResponse.json(
-        { ok: false, error: 'File exceeds the 25 MB upload limit.' },
+        { ok: false, error: 'PDF exceeds the 25 MB upload limit.' },
+        { status: 400 }
+      );
+    }
+
+    if (!isPdfFile(fileEntry)) {
+      return NextResponse.json(
+        { ok: false, error: 'Only PDF files are allowed.' },
         { status: 400 }
       );
     }
@@ -73,7 +120,7 @@ export async function POST(req: Request) {
     const category =
       typeof categoryRaw === 'string' && categoryRaw.trim()
         ? categoryRaw.trim()
-        : null;
+        : 'Course PDF';
 
     const courseIdRaw = formData.get('courseId');
     const courseId =
@@ -87,13 +134,6 @@ export async function POST(req: Request) {
         ? departmentIdRaw.trim()
         : null;
 
-    const uploadedByIdRaw = formData.get('uploadedById');
-    const uploadedById =
-      typeof uploadedByIdRaw === 'string' && uploadedByIdRaw.trim()
-        ? uploadedByIdRaw.trim()
-        : null;
-
-    // If a courseId is provided and departmentId wasn't explicitly passed, inherit the course's department
     if (courseId) {
       const course = await prisma.course.findUnique({
         where: { id: courseId },
@@ -110,39 +150,43 @@ export async function POST(req: Request) {
       }
     }
 
-    const safeBaseName = path
-      .basename(fileEntry.name)
-      .replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storedFilename = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${safeBaseName}`;
-
-    await mkdir(UPLOAD_DIR, { recursive: true });
-    const fullDiskPath = path.join(UPLOAD_DIR, storedFilename);
     const buffer = Buffer.from(await fileEntry.arrayBuffer());
-    await writeFile(fullDiskPath, buffer);
+    const folder = departmentId ? `dept-${departmentId}` : 'general';
+    const uploaded = await getStorageProvider().uploadPdf({
+      buffer,
+      originalFilename: fileEntry.name,
+      mimeType: 'application/pdf',
+      folder,
+    });
 
     const document = await prisma.document.create({
       data: {
         name: displayName,
-        filename: storedFilename,
-        path: `storage/uploads/${storedFilename}`,
-        size: fileEntry.size,
-        mimeType: fileEntry.type || 'application/pdf',
+        filename: uploaded.storedFilename,
+        path: uploaded.storageKey,
+        size: uploaded.size,
+        mimeType: 'application/pdf',
         category,
         courseId,
         departmentId,
-        uploadedById,
+        uploadedById: ctx.userId,
       },
       include: {
-        course: { select: { id: true, title: true, code: true } },
+        course: { select: { id: true, title: true, code: true, departmentId: true } },
         department: { select: { id: true, name: true, code: true } },
       },
     });
 
-    return NextResponse.json({ ok: true, document }, { status: 201 });
+    const signedUrl = getStorageProvider().createSignedUrl(document.path, 300);
+
+    return NextResponse.json(
+      { ok: true, document: { ...document, signedUrl } },
+      { status: 201 }
+    );
   } catch (err) {
     console.error('POST /api/documents error:', err);
     return NextResponse.json(
-      { ok: false, error: 'Failed to upload document.' },
+      { ok: false, error: 'Failed to upload PDF document.' },
       { status: 500 }
     );
   }

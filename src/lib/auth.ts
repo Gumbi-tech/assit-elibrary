@@ -14,7 +14,7 @@ export interface SessionPayload {
   email: string;
   studentId: string | null;
   fullName: string;
-  role: 'STUDENT' | 'LECTURER' | 'LIBRARIAN' | 'ADMIN';
+  role: 'STUDENT' | 'LECTURER' | 'LIBRARIAN' | 'ADMIN' | 'INSTRUCTOR';
   mustChangePassword: boolean;
 }
 
@@ -76,6 +76,7 @@ export function getHomeRouteForRole(role: SessionPayload['role']): string {
     case 'LIBRARIAN':
       return '/admin/accounts';
     case 'LECTURER':
+    case 'INSTRUCTOR':
     case 'STUDENT':
     default:
       return '/documents';

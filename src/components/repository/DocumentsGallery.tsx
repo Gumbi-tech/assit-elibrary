@@ -63,23 +63,8 @@ export default function DocumentsGallery({
   }
 
   return (
-    <section
-      className="repo-panel"
-      style={{
-        background: "transparent",
-        border: "none",
-        boxShadow: "none",
-      }}
-    >
-      <div
-        className="repo-panel-head"
-        style={{
-          background: "transparent",
-          borderBottom: "1px solid #CBD5E1",
-          paddingLeft: 0,
-          paddingRight: 0,
-        }}
-      >
+    <section className="repo-panel">
+      <div className="repo-panel-head">
         <strong>
           <Grid size={15} aria-hidden="true" />
           AVAILABLE LEARNING MATERIALS (GALLERY VIEW)
@@ -109,11 +94,7 @@ export default function DocumentsGallery({
       </div>
 
       {selectedDocuments.length > 0 && (
-        <div
-          className="repo-selection-toolbar"
-          aria-live="polite"
-          style={{ marginTop: "12px", borderRadius: "2px" }}
-        >
+        <div className="repo-selection-toolbar" aria-live="polite">
           <div className="repo-selection-summary">
             <span className="repo-selection-check">
               <Check size={13} aria-hidden="true" />
@@ -144,14 +125,7 @@ export default function DocumentsGallery({
         </div>
       )}
 
-      <div
-        className="repo-explorer-wrap"
-        style={{
-          background: "transparent",
-          paddingLeft: 0,
-          paddingRight: 0,
-        }}
-      >
+      <div className="repo-explorer-wrap">
         {documents.length > 0 ? (
           <div className="repo-explorer-grid">
             {documents.map((doc) => {
@@ -174,11 +148,6 @@ export default function DocumentsGallery({
                   tabIndex={0}
                   aria-label={`Preview ${doc.title}`}
                   title={`${doc.title} (${doc.courseCode} · ${doc.size})`}
-                  style={{
-                    background: isSelected ? "rgba(30, 95, 154, 0.08)" : "transparent",
-                    border: isSelected ? "1px solid #1E5F9A" : "1px solid transparent",
-                    boxShadow: "none",
-                  }}
                 >
                   <button
                     type="button"
@@ -223,21 +192,13 @@ export default function DocumentsGallery({
             })}
           </div>
         ) : (
-          <div className="empty" style={{ background: "transparent" }}>
+          <div className="empty">
             No documents match your search. Try changing the filters.
           </div>
         )}
       </div>
 
-      <div
-        className="repo-table-foot"
-        style={{
-          background: "transparent",
-          borderTop: "1px solid #CBD5E1",
-          paddingLeft: 0,
-          paddingRight: 0,
-        }}
-      >
+      <div className="repo-table-foot">
         <span>
           Showing {documents.length} of {total} indexed documents
         </span>
