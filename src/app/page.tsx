@@ -7,26 +7,24 @@ import { LoginScreen } from '@/components/repository/LoginScreen';
 import { AdminDashboard } from '@/components/repository/AdminDashboard';
 import { InstructorDashboard } from '@/components/repository/InstructorDashboard';
 import { StudentLibrary } from '@/components/repository/StudentLibrary';
-import RepositoryFooter from "@/components/repository/RepositoryFooter";
-import PortalHeader from '@/components/repository//PortalHeader';
-import { LogOut } from 'lucide-react';
+import RepositoryFooter from '@/components/repository/RepositoryFooter';
+import { ForceChangePasswordModal } from '@/components/repository/ForceChangePasswordModal';
 
 function MainPortal() {
-  const { currentUser, isAuthReady, logout } = useAuth();
+  const { currentUser, isAuthReady } = useAuth();
 
-  // Wait for client-side session check
   if (!isAuthReady) {
     return <div className="repo-page bg-[#E9EEF4]" />;
   }
 
-  // Show login screen first if no active session
   if (!currentUser) {
     return <LoginScreen />;
   }
 
   return (
     <div className="repo-page">
-      
+      <ForceChangePasswordModal />
+
       <main className="repo-main py-8">
         {currentUser.role === 'SYSTEM_ADMIN' && <AdminDashboard />}
         {currentUser.role === 'INSTRUCTOR' && <InstructorDashboard />}

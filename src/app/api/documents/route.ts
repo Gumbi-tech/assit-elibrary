@@ -29,7 +29,10 @@ export async function GET(req: Request) {
     const courseId = searchParams.get('courseId') || undefined;
     const departmentId = searchParams.get('departmentId') || undefined;
 
-    const where = buildDocumentWhereClause(ctx, { courseId, departmentId });
+    const { where, feedback } = buildDocumentWhereClause(ctx, {
+      courseId,
+      departmentId,
+    });
     const storage = getStorageProvider();
 
     const rows = await prisma.document.findMany({
@@ -47,7 +50,22 @@ export async function GET(req: Request) {
       signedUrl: storage.createSignedUrl(doc.path, 300),
     }));
 
-    return NextResponse.json({ ok: true, documents });
+    const resolvedFeedback =
+      feedback.reason === 'OK' && documents.length === 0
+        ? {
+            ...feedback,
+            reason: 'DEPARTMENT_EMPTY' as const,
+            message: `No documents found in the database for ${
+              ctx.departmentName || ctx.departmentCode || 'your department'
+            }. Other departments' documents are not displayed.`,
+          }
+        : feedback;
+
+    return NextResponse.json({
+      ok: true,
+      documents,
+      feedback: resolvedFeedback,
+    });
   } catch (err) {
     console.error('GET /api/documents error:', err);
     return NextResponse.json(

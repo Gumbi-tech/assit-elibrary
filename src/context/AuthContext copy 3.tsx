@@ -2,8 +2,14 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Role, Department } from '@/types/elibrary';
+import {
+  loginRequest,
+  changePasswordRequest,
+  logoutRequest,
+  bulkImportUsersRequest,
+  type BulkImportUserResult,
+} from '@/app/api/auth';
 
-// Extend User locally in case @/types/elibrary doesn't define optional profile/password fields yet
 export type ExtendedUser = User & {
   password?: string;
   phone?: string;
@@ -14,13 +20,23 @@ export type ExtendedUser = User & {
   profileData?: Record<string, unknown>;
 };
 
+export interface AuthResult {
+  ok: boolean;
+  error?: string;
+  mustChangePassword?: boolean;
+}
+
 interface AuthContextType {
   currentUser: ExtendedUser | null;
   users: ExtendedUser[];
   isAuthReady: boolean;
-  login: (identifier: string) => boolean;
-  logout: () => void;
+  login: (identifier: string, password: string) => Promise<AuthResult>;
+  logout: () => Promise<void>;
   createUser: (userData: Omit<ExtendedUser, 'id' | 'createdAt'>) => void;
+  bulkImportUsers: (
+    rawRows: Array<Record<string, unknown>>,
+    options?: { onDuplicate?: 'skip' | 'update'; defaultTempPassword?: string }
+  ) => Promise<BulkImportUserResult>;
   updateUserStatus: (id: string, isActive: boolean) => void;
   switchRoleDemo: (role: Role, department?: Department) => void;
   updateProfile: (updates: {
@@ -29,36 +45,46 @@ interface AuthContextType {
     studentId?: string;
     bio?: string;
   }) => Promise<void>;
-  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  changePassword: (
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword?: string
+  ) => Promise<void>;
 }
 
 const INITIAL_USERS: ExtendedUser[] = [
   {
     id: 'usr-1',
+    studentId: 'ADM-001',
     name: 'Admin Superintendent',
     email: 'admin@college.ac.sz',
     role: 'SYSTEM_ADMIN',
     isActive: true,
+    mustChangePassword: false,
     createdAt: '2026-01-10',
     password: 'password123',
   },
   {
     id: 'usr-2',
+    studentId: 'STF-102',
     name: 'Prof. M. Dlamini (SE Instructor)',
     email: 'se.instructor@college.ac.sz',
     role: 'INSTRUCTOR',
     department: 'SOFTWARE_ENGINEERING',
     isActive: true,
+    mustChangePassword: false,
     createdAt: '2026-02-01',
     password: 'password123',
   },
   {
     id: 'usr-4',
+    studentId: 'STU-2026-004',
     name: 'Sipho Nxumalo (SE Student)',
     email: 'student.se@college.ac.sz',
     role: 'STUDENT',
     department: 'SOFTWARE_ENGINEERING',
     isActive: true,
+    mustChangePassword: false,
     createdAt: '2026-03-01',
     password: 'password123',
   },
@@ -110,23 +136,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = (identifier: string) => {
-    const query = identifier.trim().toLowerCase();
-    const found = users.find(
-      (u) =>
-        u.isActive &&
-        (u.email.toLowerCase() === query ||
-          u.id.toLowerCase() === query ||
-          u.name.toLowerCase().includes(query))
-    );
-    if (found) {
-      persistCurrentUser(found);
-      return true;
+  const login = async (identifier: string, password: string): Promise<AuthResult> => {
+    const res = await loginRequest(identifier, password, users);
+    if (!res.ok || !res.data) {
+      return {
+        ok: false,
+        error: res.error || 'Unable to sign in.',
+      };
     }
-    return false;
+
+    persistCurrentUser(res.data);
+    return {
+      ok: true,
+      mustChangePassword: Boolean(res.data.mustChangePassword),
+    };
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await logoutRequest();
     persistCurrentUser(null);
   };
 
@@ -134,10 +161,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const newUser: ExtendedUser = {
       ...userData,
       password: userData.password || 'password123',
+      mustChangePassword: userData.mustChangePassword ?? true,
       id: `usr-${Date.now()}`,
       createdAt: new Date().toISOString().split('T')[0],
     };
     persistUsers([newUser, ...users]);
+  };
+
+  const bulkImportUsers = async (
+    rawRows: Array<Record<string, unknown>>,
+    options?: { onDuplicate?: 'skip' | 'update'; defaultTempPassword?: string }
+  ): Promise<BulkImportUserResult> => {
+    const res = await bulkImportUsersRequest(rawRows, users, options);
+    if (!res.ok || !res.data) {
+      throw new Error(res.error || 'Bulk user import failed.');
+    }
+
+    const updatedMap = new Map(res.data.updated.map((u) => [u.id, u]));
+    const mergedUsers: ExtendedUser[] = [
+      ...res.data.created,
+      ...users.map((u) => updatedMap.get(u.id) ?? u),
+    ];
+
+    persistUsers(mergedUsers);
+    return res.data;
   };
 
   const updateUserStatus = (id: string, isActive: boolean) => {
@@ -176,24 +223,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     persistCurrentUser(updatedUser);
   };
 
-  const changePassword = async (currentPassword: string, newPassword: string) => {
+  const changePassword = async (
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword = newPassword
+  ) => {
     if (!currentUser) {
       throw new Error('No authenticated user found.');
     }
 
-    // Verify existing password if set on the account
-    if (currentUser.password && currentUser.password !== currentPassword) {
-      throw new Error('The current password you entered is incorrect.');
+    const res = await changePasswordRequest(
+      currentUser,
+      currentPassword,
+      newPassword,
+      confirmPassword
+    );
+
+    if (!res.ok || !res.data) {
+      throw new Error(res.error || 'Failed to update password.');
     }
 
-    const updatedUser: ExtendedUser = {
-      ...currentUser,
-      password: newPassword,
-    };
-
-    const updatedUsers = users.map((u) => (u.id === currentUser.id ? updatedUser : u));
+    const updatedUsers = users.map((u) =>
+      u.id === currentUser.id ? (res.data as ExtendedUser) : u
+    );
     persistUsers(updatedUsers);
-    persistCurrentUser(updatedUser);
+    persistCurrentUser(res.data);
   };
 
   return (
@@ -205,6 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         createUser,
+        bulkImportUsers,
         updateUserStatus,
         switchRoleDemo,
         updateProfile,

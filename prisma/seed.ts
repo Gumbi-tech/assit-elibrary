@@ -1,169 +1,198 @@
-import { PrismaClient } from '@prisma/client'
+import 'dotenv/config';
+import { PrismaClient, Role, AccountStatus } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient()
+const prisma = new PrismaClient();
 
-async function main() {
-  console.log('🌱 Starting database seed...')
+interface SeedDepartment {
+  name: string;
+  code: string;
+  description: string;
+}
 
-  // Create 3 Departments
-  const softwareEng = await prisma.department.create({
-    data: {
-      name: 'Software Engineering',
-      description: 'Department of Software Engineering and Computer Science'
+interface SeedAccount {
+  studentId?: string;
+  fullName: string;
+  email: string;
+  password: string;
+  role: Role;
+  status: AccountStatus;
+  department?: string;
+  mustChangePassword: boolean;
+  createdAt: string;
+}
+
+const SEED_DEPARTMENTS: SeedDepartment[] = [
+  {
+    name: 'Software Engineering',
+    code: 'SOFTWARE_ENGINEERING',
+    description: 'Software Engineering department',
+  },
+  {
+    name: 'Cyber Security',
+    code: 'CYBER_SECURITY',
+    description: 'Cyber Security department',
+  },
+  {
+    name: 'Multimedia',
+    code: 'MULTIMEDIA',
+    description: 'Multimedia department',
+  },
+];
+
+const SEED_ACCOUNTS: SeedAccount[] = [
+  {
+    studentId: 'ADM-001',
+    fullName: 'Admin Superintendent',
+    email: 'admin@college.ac.sz',
+    password: 'password123',
+    role: Role.ADMIN,
+    status: AccountStatus.ACTIVE,
+    mustChangePassword: false,
+    createdAt: '2026-01-10T00:00:00.000Z',
+  },
+  {
+    studentId: 'STF-102',
+    fullName: 'Prof. M. Dlamini (SE Instructor)',
+    email: 'se.instructor@college.ac.sz',
+    password: 'password123',
+    role: Role.INSTRUCTOR,
+    status: AccountStatus.ACTIVE,
+    department: 'SOFTWARE_ENGINEERING',
+    mustChangePassword: false,
+    createdAt: '2026-02-01T00:00:00.000Z',
+  },
+  {
+    studentId: 'STU-2026-004',
+    fullName: 'Sipho Nxumalo (SE Student)',
+    email: 'student.se@college.ac.sz',
+    password: 'password123',
+    role: Role.STUDENT,
+    status: AccountStatus.ACTIVE,
+    department: 'SOFTWARE_ENGINEERING',
+    mustChangePassword: false,
+    createdAt: '2026-03-01T00:00:00.000Z',
+  },
+];
+
+function normalizeToken(value?: string): string {
+  if (!value) return '';
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+async function resolveDepartmentId(rawDepartment?: string): Promise<string | null> {
+  if (!rawDepartment || !rawDepartment.trim()) return null;
+
+  const trimmed = rawDepartment.trim();
+  const spaced = trimmed.replace(/[_-]+/g, ' ').trim();
+  const norm = normalizeToken(trimmed);
+
+  const dept = await prisma.department.findFirst({
+    where: {
+      OR: [
+        { code: { equals: trimmed, mode: 'insensitive' } },
+        { code: { equals: norm, mode: 'insensitive' } },
+        { name: { equals: trimmed, mode: 'insensitive' } },
+        { name: { equals: spaced, mode: 'insensitive' } },
+      ],
+    },
+    select: { id: true },
+  });
+
+  return dept?.id ?? null;
+}
+
+async function seedDepartments(): Promise<void> {
+  for (const dept of SEED_DEPARTMENTS) {
+    const existing = await prisma.department.findFirst({
+      where: {
+        OR: [
+          { code: dept.code },
+          { name: dept.name },
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await prisma.department.update({
+        where: { id: existing.id },
+        data: {
+          name: dept.name,
+          code: dept.code,
+          description: dept.description,
+        },
+      });
+    } else {
+      await prisma.department.create({
+        data: dept,
+      });
     }
-  })
 
-  const cyberSec = await prisma.department.create({
-    data: {
-      name: 'Cyber Security',
-      description: 'Department of Cyber Security and Information Assurance'
-    }
-  })
-
-  const multiMedia = await prisma.department.create({
-    data: {
-      name: 'Multi Media',
-      description: 'Department of Multi Media and Digital Design'
-    }
-  })
-
-  console.log('✅ Created 3 departments')
-
-  // Create sample courses for each department
-  await prisma.course.createManyAndReturn({
-    data: [
-      {
-        title: 'Introduction to Software Development',
-        code: 'SE-101',
-        description: 'Fundamentals of software development and programming',
-        departmentId: softwareEng.id,
-        credits: 3
-      },
-      {
-        title: 'Data Structures and Algorithms',
-        code: 'SE-201',
-        description: 'Advanced data structures and algorithm analysis',
-        departmentId: softwareEng.id,
-        credits: 3
-      },
-      {
-        title: 'Web Application Development',
-        code: 'SE-301',
-        description: 'Building full-stack web applications',
-        departmentId: softwareEng.id,
-        credits: 3
-      },
-      {
-        title: 'Network Security Fundamentals',
-        code: 'CS-101',
-        description: 'Basics of network security and protocols',
-        departmentId: cyberSec.id,
-        credits: 3
-      },
-      {
-        title: 'Cryptography and Encryption',
-        code: 'CS-201',
-        description: 'Mathematical foundations of cryptography',
-        departmentId: cyberSec.id,
-        credits: 3
-      },
-      {
-        title: 'Ethical Hacking and Penetration Testing',
-        code: 'CS-301',
-        description: 'Methods and tools for security testing',
-        departmentId: cyberSec.id,
-        credits: 3
-      },
-      {
-        title: 'Digital Media Production',
-        code: 'MM-101',
-        description: 'Introduction to digital media creation and editing',
-        departmentId: multiMedia.id,
-        credits: 3
-      },
-      {
-        title: 'Multimedia Storytelling',
-        code: 'MM-201',
-        description: 'Combining audio, video, and interactive elements',
-        departmentId: multiMedia.id,
-        credits: 3
-      },
-      {
-        title: 'Advanced Graphics and Animation',
-        code: 'MM-301',
-        description: '3D modeling and animation techniques',
-        departmentId: multiMedia.id,
-        credits: 3
-      }
-    ],
-    skipDuplicates: true
-  })
-
-  console.log('✅ Created courses')
-
-  // Create sample documents
-  const uploadsDir = './public/uploads'
-
-  const samplePdfs = [
-    { courseCode: 'SE-101', name: 'SE-101-Syllabus', filename: 'SE-101-Syllabus.pdf' },
-    { courseCode: 'SE-201', name: 'Algorithms-Reference', filename: 'Algorithms-Reference.pdf' },
-    { courseCode: 'SE-301', name: 'Web-Development-Guide', filename: 'Web-Development-Guide.pdf' },
-    { courseCode: 'CS-101', name: 'Network-Security-Basics', filename: 'Network-Security-Basics.pdf' },
-    { courseCode: 'CS-201', name: 'Cryptography-Handbook', filename: 'Cryptography-Handbook.pdf' },
-    { courseCode: 'CS-301', name: 'Pen-Testing-Cheatsheet', filename: 'Pen-Testing-Cheatsheet.pdf' },
-    { courseCode: 'MM-101', name: 'Digital-Media-Syllabus', filename: 'Digital-Media-Syllabus.pdf' },
-    { courseCode: 'MM-201', name: 'Storytelling-Guide', filename: 'Storytelling-Guide.pdf' },
-    { courseCode: 'MM-301', name: 'Animation-Techniques', filename: 'Animation-Techniques.pdf' }
-  ]
-
-  for (const pdf of samplePdfs) {
-    await prisma.document.create({
-      data: {
-        name: pdf.name,
-        filename: pdf.filename,
-        path: `/app/public/uploads/${pdf.filename}`,
-        size: 256000,
-        mimeType: 'application/pdf'
-      }
-    })
-
-    // Create empty PDF file
-    const pdfContent = `%PDF-1.4
-%âãÏÝ
-1 0 obj
-/Type /Catalog
-endobj
-2 0 obj
-/Type /Pages
-/Kids []
-endobj
-xref
-0 3
-0000000000 65535 f 
-trailer
-/Size 3
-startxref
-0
-%%EOF
-`
-    const fs = require('fs')
-    const path = require('path')
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true })
-    }
-    fs.writeFileSync(path.join(uploadsDir, pdf.filename), pdfContent)
-    console.log(`✅ Created document: ${pdf.filename}`)
+    console.log(`Seeded department: ${dept.name} (${dept.code})`);
   }
+}
 
-  console.log('🌱 Seed complete!')
+async function seedUsers(): Promise<void> {
+  for (const account of SEED_ACCOUNTS) {
+    const passwordHash = await bcrypt.hash(account.password, 12);
+    const departmentId = await resolveDepartmentId(account.department);
+
+    if (account.department && !departmentId) {
+      throw new Error(
+        `Could not resolve departmentId for ${account.email} (${account.department})`
+      );
+    }
+
+    const email = account.email.toLowerCase();
+
+    await prisma.user.upsert({
+      where: { email },
+      update: {
+        studentId: account.studentId ?? null,
+        fullName: account.fullName,
+        passwordHash,
+        role: account.role,
+        status: account.status,
+        department: account.department ?? null,
+        departmentId,
+        mustChangePassword: account.mustChangePassword,
+      },
+      create: {
+        studentId: account.studentId ?? null,
+        email,
+        fullName: account.fullName,
+        passwordHash,
+        role: account.role,
+        status: account.status,
+        department: account.department ?? null,
+        departmentId,
+        mustChangePassword: account.mustChangePassword,
+        createdAt: new Date(account.createdAt),
+      },
+    });
+
+    console.log(
+      `Seeded user: ${account.email} (${account.role}) -> departmentId=${departmentId ?? 'none'}`
+    );
+  }
+}
+
+async function main(): Promise<void> {
+  await seedDepartments();
+  await seedUsers();
 }
 
 main()
   .then(async () => {
-    await prisma.$disconnect()
+    await prisma.$disconnect();
   })
-  .catch(async (e) => {
-    console.error('❌ Seed failed:', e)
-    await prisma.$disconnect()
-    process.exit(1)
-  })
+  .catch(async (err: unknown) => {
+    console.error('Seed failed:', err);
+    await prisma.$disconnect();
+    process.exit(1);
+  });

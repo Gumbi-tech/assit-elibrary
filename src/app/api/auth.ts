@@ -5,7 +5,6 @@ import { generateTempPassword } from '@/lib/import/parseAccountsFile';
 import type { ExtendedUser } from '@/context/AuthContext';
 import type { Role, Department } from '@/types/elibrary';
 
-
 export type ProvisionedUser = ExtendedUser & {
   tempPassword: string;
   mustChangePassword: boolean;
@@ -22,12 +21,6 @@ export interface AuthActionResult<T = unknown> {
   error?: string;
   data?: T;
   mustChangePassword?: boolean;
-}
-
-export interface BulkImportUserResult {
-  created: Array<ExtendedUser & { tempPassword: string; mustChangePassword: boolean }>;
-  updated: ExtendedUser[];
-  skipped: Array<{ email: string; studentId?: string; reason: string }>;
 }
 
 function normalizeRoleForApp(rawRole?: string): Role {
@@ -47,12 +40,12 @@ function normalizeDeptForApp(rawDept?: string, role?: Role): Department | undefi
 
 /**
  * Authenticates a user using a single identifier (Student ID or Email) + Password.
- * Checks against stored/active users (and supports optional server /api/auth/login if present).
+ * Checks known users first, and falls back to /api/auth/login if not found locally.
  */
 export async function loginRequest(
   identifier: string,
   password: string,
-  knownUsers: ExtendedUser[]
+  knownUsers: ExtendedUser[] = []
 ): Promise<AuthActionResult<ExtendedUser>> {
   const parsed = LoginSchema.safeParse({ identifier, password });
   if (!parsed.success) {
@@ -62,48 +55,80 @@ export async function loginRequest(
     };
   }
 
-  const query = parsed.data.identifier.trim().toLowerCase();
+  const rawIdentifier = parsed.data.identifier.trim();
+  const query = rawIdentifier.toLowerCase();
 
   const matched = knownUsers.find((u) => {
-    const emailMatch = u.email.toLowerCase() === query;
+    const emailMatch = u.email?.toLowerCase() === query;
     const studentIdMatch = u.studentId ? u.studentId.toLowerCase() === query : false;
-    const idMatch = u.id.toLowerCase() === query;
+    const idMatch = u.id?.toLowerCase() === query;
     return emailMatch || studentIdMatch || idMatch;
   });
 
-  if (!matched) {
+  if (matched) {
+    if (matched.isActive === false) {
+      return {
+        ok: false,
+        error: 'This account is inactive. Contact your system or library administrator.',
+      };
+    }
+
+    const expectedPassword = matched.password || 'password123';
+    if (parsed.data.password !== expectedPassword) {
+      return {
+        ok: false,
+        error: 'Incorrect password for this account.',
+      };
+    }
+
+    const mustChange = Boolean(matched.mustChangePassword);
+    return {
+      ok: true,
+      mustChangePassword: mustChange,
+      data: {
+        ...matched,
+        isActive: true,
+        mustChangePassword: mustChange,
+      },
+    };
+  }
+
+  // Fallback to server login endpoint if the account isn't in `knownUsers` yet
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        identifier: rawIdentifier,
+        password: parsed.data.password,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.ok && data?.user) {
+      const mustChange = Boolean(data.mustChangePassword ?? data.user.mustChangePassword);
+      return {
+        ok: true,
+        mustChangePassword: mustChange,
+        data: {
+          ...data.user,
+          isActive: data.user.isActive !== false,
+          mustChangePassword: mustChange,
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      error: data?.error || 'No account found for that Student ID or Email address.',
+    };
+  } catch {
     return {
       ok: false,
       error: 'No account found for that Student ID or Email address.',
     };
   }
-
-  if (!matched.isActive) {
-    return {
-      ok: false,
-      error: 'This account is inactive. Contact your system or library administrator.',
-    };
-  }
-
-  // Verify password (defaults to 'password123' for seeded accounts if no explicit password was set)
-  const expectedPassword = matched.password || 'password123';
-  if (parsed.data.password !== expectedPassword) {
-    return {
-      ok: false,
-      error: 'Incorrect password for this account.',
-    };
-  }
-
-  const mustChange = Boolean(matched.mustChangePassword);
-
-  return {
-    ok: true,
-    mustChangePassword: mustChange,
-    data: {
-      ...matched,
-      mustChangePassword: mustChange,
-    },
-  };
 }
 
 /**
@@ -167,7 +192,7 @@ export async function bulkImportUsersRequest(
 ): Promise<AuthActionResult<BulkImportUserResult>> {
   const onDuplicate = options.onDuplicate || 'skip';
 
-  const created: Array<ExtendedUser & { tempPassword: string; mustChangePassword: boolean }> = [];
+  const created: ProvisionedUser[] = [];
   const updated: ExtendedUser[] = [];
   const skipped: Array<{ email: string; studentId?: string; reason: string }> = [];
 
@@ -235,7 +260,7 @@ export async function bulkImportUsersRequest(
     }
 
     const tempPassword = options.defaultTempPassword || generateTempPassword(10);
-    const newUser: ExtendedUser & { tempPassword: string; mustChangePassword: boolean } = {
+    const newUser: ProvisionedUser = {
       id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: row.fullName,
       email: row.email,
@@ -263,5 +288,3 @@ export async function bulkImportUsersRequest(
     data: { created, updated, skipped },
   };
 }
-
-

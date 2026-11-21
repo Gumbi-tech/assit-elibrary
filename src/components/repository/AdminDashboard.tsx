@@ -139,6 +139,7 @@ export const AdminDashboard: React.FC<Props> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [bulkFileName, setBulkFileName] = useState('');
   const [bulkPreview, setBulkPreview] = useState<ParsedBulkRow[]>([]);
+  const [bulkTempPassword, setBulkTempPassword] = useState('password123');
   const [bulkError, setBulkError] = useState('');
   const [onDuplicate, setOnDuplicate] = useState<'skip' | 'update'>('skip');
   const [isImporting, setIsImporting] = useState(false);
@@ -660,7 +661,9 @@ export const AdminDashboard: React.FC<Props> = ({
     setBulkError('');
 
     try {
-      const result = await bulkImportUsers(bulkPreview, { onDuplicate });
+      const result = await bulkImportUsers(bulkPreview, { onDuplicate ,
+        ...(bulkTempPassword.trim() ? { defaultTempPassword: bulkTempPassword.trim() } : {}),
+      });
       setProvisionedReport(result.created);
       setBulkPreview([]);
       setBulkFileName('');
@@ -1234,8 +1237,8 @@ export const AdminDashboard: React.FC<Props> = ({
                       />
                     </label>
 
-                    <label className="repo-field">
                       <span>Temporary Password (Optional · defaults to password123)</span>
+                    <label className="repo-field">
                       <input
                         id="modal-user-temp-pass"
                         type="text"
@@ -1474,6 +1477,17 @@ export const AdminDashboard: React.FC<Props> = ({
                         <option value="update">Update existing profile details (keep existing password)</option>
                       </select>
                     </label>
+
+                    <label className="repo-field">
+  <span>Batch Temporary Password (Optional · leave blank to auto-generate per user)</span>
+  <input
+    id="bulk-temp-password"
+    type="text"
+    placeholder="Auto-generated if left blank"
+    value={bulkTempPassword}
+    onChange={(e) => setBulkTempPassword(e.target.value)}
+  />
+</label>
                   </div>
 
                   <div>

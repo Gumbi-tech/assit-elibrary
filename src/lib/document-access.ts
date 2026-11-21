@@ -18,6 +18,22 @@ export type DocumentWhereClause = DocumentFindManyFirstArg extends {
 
 export type AppRole = 'STUDENT' | 'LECTURER' | 'LIBRARIAN' | 'INSTRUCTOR' | 'ADMIN';
 
+export type DepartmentScopeReason =
+  | 'OK'
+  | 'ADMIN_ALL_DEPARTMENTS'
+  | 'NO_DEPARTMENT_ASSIGNED'
+  | 'CROSS_DEPARTMENT_FORBIDDEN'
+  | 'DEPARTMENT_EMPTY';
+
+export interface DepartmentScopeFeedback {
+  reason: DepartmentScopeReason;
+  message: string;
+  userDepartmentId: string | null;
+  userDepartmentName: string | null;
+  userDepartmentCode: string | null;
+  requestedDepartmentId: string | null;
+}
+
 const VALID_ROLES: readonly AppRole[] = [
   'STUDENT',
   'LECTURER',
@@ -29,13 +45,25 @@ const VALID_ROLES: readonly AppRole[] = [
 function normalizeRole(rawRole: unknown): AppRole | null {
   if (typeof rawRole !== 'string') return null;
   const upper = rawRole.trim().toUpperCase();
+  if (upper === 'SYSTEM_ADMIN') return 'ADMIN';
   return VALID_ROLES.includes(upper as AppRole) ? (upper as AppRole) : null;
+}
+
+function normalizeToken(val?: string | null): string {
+  if (!val) return '';
+  return val
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 export interface AccessContext {
   userId: string;
   role: AppRole;
   departmentId: string | null;
+  departmentName: string | null;
+  departmentCode: string | null;
 }
 
 interface ClientUserHeaderPayload {
@@ -50,56 +78,41 @@ interface ClientUserHeaderPayload {
   isActive?: boolean;
 }
 
-async function resolveDepartmentId(
+async function resolveDepartmentRecord(
   rawDepartmentId?: string | null,
   rawDepartment?: string | null
-): Promise<string | null> {
+): Promise<{ id: string; name: string; code: string | null } | null> {
   if (rawDepartmentId && rawDepartmentId.trim()) {
     const byId = await prisma.department.findUnique({
       where: { id: rawDepartmentId.trim() },
-      select: { id: true },
+      select: { id: true, name: true, code: true },
     });
-    if (byId) return byId.id;
+    if (byId) return byId;
   }
 
   if (!rawDepartment || !rawDepartment.trim()) {
     return null;
   }
 
-  const trimmed = rawDepartment.trim();
-  const spaced = trimmed.replace(/[_-]+/g, ' ').trim();
-  const compact = spaced.replace(/\s+/g, '');
-  const initials = spaced
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => word[0])
-    .join('');
-
-  const candidates = Array.from(
-    new Set([trimmed, spaced, compact, initials].filter(Boolean))
-  );
-
-  const dept = await prisma.department.findFirst({
-    where: {
-      OR: [
-        ...candidates.map((val) => ({
-          name: { equals: val, mode: 'insensitive' as const },
-        })),
-        ...candidates.map((val) => ({
-          code: { equals: val, mode: 'insensitive' as const },
-        })),
-        ...candidates.map((val) => ({
-          name: { contains: val, mode: 'insensitive' as const },
-        })),
-      ],
-    },
-    select: { id: true },
+  const normTarget = normalizeToken(rawDepartment);
+  const allDepts = await prisma.department.findMany({
+    select: { id: true, name: true, code: true },
   });
 
-  return dept?.id ?? null;
+  for (const dept of allDepts) {
+    if (
+      normalizeToken(dept.code) === normTarget ||
+      normalizeToken(dept.name) === normTarget ||
+      normalizeToken(dept.id) === normTarget
+    ) {
+      return dept;
+    }
+  }
+
+  return null;
 }
 
-async function getFallbackUserFromHeader(): Promise<AccessContext | null> {
+async function getUserFromHeader(): Promise<AccessContext | null> {
   try {
     const headerStore = await headers();
     const rawHeader = headerStore.get('x-elibrary-user');
@@ -111,12 +124,11 @@ async function getFallbackUserFromHeader(): Promise<AccessContext | null> {
     const role = normalizeRole(parsed.role);
     if (!role) return null;
 
-    const email = parsed.email?.trim().toLowerCase();
+    const email = parsed.email?.trim().toLowerCase() || null;
     const studentId = parsed.studentId?.trim().toUpperCase() || null;
+    if (!email && !studentId && !parsed.id) return null;
 
-    if (!email && !studentId) return null;
-
-    const resolvedDeptId = await resolveDepartmentId(
+    const resolvedDept = await resolveDepartmentRecord(
       parsed.departmentId,
       parsed.department
     );
@@ -124,6 +136,7 @@ async function getFallbackUserFromHeader(): Promise<AccessContext | null> {
     let dbUser = await prisma.user.findFirst({
       where: {
         OR: [
+          ...(parsed.id ? [{ id: parsed.id }] : []),
           ...(email ? [{ email }] : []),
           ...(studentId ? [{ studentId }] : []),
         ],
@@ -131,10 +144,15 @@ async function getFallbackUserFromHeader(): Promise<AccessContext | null> {
       select: {
         id: true,
         role: true,
+        department: true,
         departmentId: true,
         status: true,
       },
     });
+
+    if (dbUser && dbUser.status !== 'ACTIVE') {
+      return null;
+    }
 
     if (!dbUser && email) {
       dbUser = await prisma.user.create({
@@ -145,58 +163,70 @@ async function getFallbackUserFromHeader(): Promise<AccessContext | null> {
           passwordHash: 'client-synced-session',
           role: role as never,
           status: 'ACTIVE',
-          department: parsed.department ?? null,
-          departmentId: resolvedDeptId,
+          department: resolvedDept?.code ?? parsed.department ?? null,
+          departmentId: resolvedDept?.id ?? null,
           mustChangePassword: false,
         },
         select: {
           id: true,
           role: true,
+          department: true,
           departmentId: true,
           status: true,
         },
       });
-    } else if (dbUser && !dbUser.departmentId && resolvedDeptId) {
+    } else if (dbUser && resolvedDept && dbUser.departmentId !== resolvedDept.id) {
       dbUser = await prisma.user.update({
         where: { id: dbUser.id },
         data: {
-          departmentId: resolvedDeptId,
-          ...(parsed.department ? { department: parsed.department } : {}),
+          departmentId: resolvedDept.id,
+          department: resolvedDept.code ?? parsed.department ?? dbUser.department,
         },
         select: {
           id: true,
           role: true,
+          department: true,
           departmentId: true,
           status: true,
         },
       });
     }
 
-    if (!dbUser || dbUser.status !== 'ACTIVE') {
-      return null;
-    }
+    const activeDept =
+      resolvedDept ||
+      (await resolveDepartmentRecord(dbUser?.departmentId, dbUser?.department));
 
-    const finalRole = normalizeRole(dbUser.role) ?? role;
+    const effectiveUserId = dbUser?.id ?? parsed.id ?? email ?? 'client-user';
+    const finalRole = normalizeRole(dbUser?.role) ?? role;
+
     return {
-      userId: dbUser.id,
+      userId: effectiveUserId,
       role: finalRole,
-      departmentId: dbUser.departmentId ?? resolvedDeptId,
+      departmentId: activeDept?.id ?? dbUser?.departmentId ?? null,
+      departmentName: activeDept?.name ?? parsed.department ?? null,
+      departmentCode: activeDept?.code ?? parsed.department ?? null,
     };
   } catch (err) {
-    console.error('[getFallbackUserFromHeader] failed:', err);
+    console.error('[getUserFromHeader] failed:', err);
     return null;
   }
 }
 
 export async function getAccessContext(): Promise<AccessContext | null> {
-  const session = await getCurrentSession();
+  // Prefer explicit client context header when sent so switching accounts/roles in UI is immediate
+  const headerCtx = await getUserFromHeader();
+  if (headerCtx) {
+    return headerCtx;
+  }
 
+  const session = await getCurrentSession();
   if (session?.userId) {
     const dbUser = await prisma.user.findUnique({
       where: { id: session.userId },
       select: {
         id: true,
         role: true,
+        department: true,
         departmentId: true,
         status: true,
       },
@@ -205,64 +235,110 @@ export async function getAccessContext(): Promise<AccessContext | null> {
     if (dbUser && dbUser.status === 'ACTIVE') {
       const resolvedRole = normalizeRole(dbUser.role) ?? normalizeRole(session.role);
       if (resolvedRole) {
+        const activeDept = await resolveDepartmentRecord(
+          dbUser.departmentId,
+          dbUser.department
+        );
         return {
           userId: dbUser.id,
           role: resolvedRole,
-          departmentId: dbUser.departmentId,
+          departmentId: activeDept?.id ?? dbUser.departmentId,
+          departmentName: activeDept?.name ?? dbUser.department ?? null,
+          departmentCode: activeDept?.code ?? dbUser.department ?? null,
         };
       }
     }
   }
 
-  return getFallbackUserFromHeader();
+  return null;
+}
+
+export function isDepartmentScopedRole(role: AppRole): boolean {
+  return role === 'STUDENT' || role === 'INSTRUCTOR' || role === 'LECTURER';
 }
 
 export function buildDocumentWhereClause(
   ctx: AccessContext,
   filters?: { courseId?: string; departmentId?: string }
-): DocumentWhereClause {
+): {
+  where: DocumentWhereClause;
+  feedback: DepartmentScopeFeedback;
+} {
   const requestedCourseId = filters?.courseId?.trim() || undefined;
   const requestedDeptId = filters?.departmentId?.trim() || undefined;
+  const deptLabel = ctx.departmentName || ctx.departmentCode || 'your department';
 
-  const isDeptScopedRole =
-    ctx.role === 'STUDENT' || ctx.role === 'INSTRUCTOR' || ctx.role === 'LECTURER';
-
-  if (isDeptScopedRole) {
-    if (!ctx.departmentId) {
-      return { id: '__no_access__' } as DocumentWhereClause;
-    }
-
-    if (requestedDeptId && requestedDeptId !== ctx.departmentId) {
-      return { id: '__no_access__' } as DocumentWhereClause;
-    }
-
-    const deptScope = {
-      OR: [
-        { departmentId: ctx.departmentId },
-        { course: { departmentId: ctx.departmentId } },
-      ],
-    };
-
-    const courseScope = requestedCourseId
-      ? {
-          courseId: requestedCourseId,
-          course: { departmentId: ctx.departmentId },
-        }
-      : undefined;
-
+  if (!isDepartmentScopedRole(ctx.role)) {
     return {
-      AND: [
-        deptScope,
-        ...(courseScope ? [courseScope] : []),
-      ],
-    } as DocumentWhereClause;
+      where: {
+        ...(requestedCourseId ? { courseId: requestedCourseId } : {}),
+        ...(requestedDeptId ? { departmentId: requestedDeptId } : {}),
+      } as DocumentWhereClause,
+      feedback: {
+        reason: 'ADMIN_ALL_DEPARTMENTS',
+        message: requestedDeptId
+          ? 'Showing documents for the selected department.'
+          : 'Showing documents across all departments.',
+        userDepartmentId: ctx.departmentId,
+        userDepartmentName: ctx.departmentName,
+        userDepartmentCode: ctx.departmentCode,
+        requestedDepartmentId: requestedDeptId ?? null,
+      },
+    };
   }
 
-  // LIBRARIAN, ADMIN
+  if (!ctx.departmentId) {
+    return {
+      where: { id: '__no_access__' } as DocumentWhereClause,
+      feedback: {
+        reason: 'NO_DEPARTMENT_ASSIGNED',
+        message:
+          'Your account has no department assigned in the database. No documents from other departments are shown.',
+        userDepartmentId: null,
+        userDepartmentName: null,
+        userDepartmentCode: null,
+        requestedDepartmentId: requestedDeptId ?? null,
+      },
+    };
+  }
+
+  if (requestedDeptId && requestedDeptId !== ctx.departmentId) {
+    return {
+      where: { id: '__no_access__' } as DocumentWhereClause,
+      feedback: {
+        reason: 'CROSS_DEPARTMENT_FORBIDDEN',
+        message: `Access restricted: your account belongs to ${deptLabel}, so you cannot view another department's content.`,
+        userDepartmentId: ctx.departmentId,
+        userDepartmentName: ctx.departmentName,
+        userDepartmentCode: ctx.departmentCode,
+        requestedDepartmentId: requestedDeptId,
+      },
+    };
+  }
+
+  const deptScope = {
+    OR: [
+      { departmentId: ctx.departmentId },
+      { course: { departmentId: ctx.departmentId } },
+    ],
+  };
+
   return {
-    ...(requestedCourseId ? { courseId: requestedCourseId } : {}),
-    ...(requestedDeptId ? { departmentId: requestedDeptId } : {}),
-  } as DocumentWhereClause;
+    where: {
+      AND: [
+        deptScope,
+        ...(requestedCourseId ? [{ courseId: requestedCourseId }] : []),
+      ],
+    } as DocumentWhereClause,
+    feedback: {
+      reason: 'OK',
+      message: `Showing documents for ${deptLabel} only.`,
+      userDepartmentId: ctx.departmentId,
+      userDepartmentName: ctx.departmentName,
+      userDepartmentCode: ctx.departmentCode,
+      requestedDepartmentId: ctx.departmentId,
+    },
+  };
 }
 
 export function canUserAccessDocument(
@@ -272,13 +348,9 @@ export function canUserAccessDocument(
     course?: { departmentId: string } | null;
   }
 ): boolean {
-  const isDeptScopedRole =
-    ctx.role === 'STUDENT' || ctx.role === 'INSTRUCTOR' || ctx.role === 'LECTURER';
-
-  if (!isDeptScopedRole) return true;
+  if (!isDepartmentScopedRole(ctx.role)) return true;
   if (!ctx.departmentId) return false;
 
   const effectiveDeptId = doc.departmentId ?? doc.course?.departmentId ?? null;
   return effectiveDeptId === ctx.departmentId;
 }
-
