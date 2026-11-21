@@ -9,7 +9,7 @@ RUN npm ci --quiet
 # Copy source code
 COPY prisma ./prisma/
 COPY src ./src/
-COPY public ./public/
+
 
 # Run Prisma migration and generate client
 RUN npx prisma generate --schema=prisma/schema.prisma
