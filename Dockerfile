@@ -6,36 +6,40 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --quiet
 
-# Copy source code
+# Copy Prisma schema, TypeScript/Next configs, and app directories
 COPY prisma ./prisma/
+COPY tsconfig.json ./
+COPY next.config.js ./
 COPY src ./src/
+# Uncomment or adjust if these folders exist at the project root instead of inside src/:
+# COPY context ./context/
+# COPY components ./components/
 
-
-# Run Prisma migration and generate client
+# Generate Prisma Client (no DB connection required)
 RUN npx prisma generate --schema=prisma/schema.prisma
-RUN npx prisma db push --schema=prisma/schema.prisma
 
-# Production build
+# Production standalone build
 RUN npm run build
 
 FROM node:20-alpine AS runtime
 
 WORKDIR /app
 
-# Copy built artifacts from builder
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/public ./public
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 
-# Set non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Create non-root user and owned /app directory
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+  && chown -R appuser:appgroup /app
+
+# Copy standalone server, static assets, and Prisma files
+COPY --from=builder --chown=appuser:appgroup /app/.next/standalone ./
+COPY --from=builder --chown=appuser:appgroup /app/.next/static ./.next/static
+COPY --from=builder --chown=appuser:appgroup /app/prisma ./prisma
+
 USER appuser
 
 EXPOSE 3000
-
-ENV NODE_ENV=production
-ENV PORT=3000
 
 CMD ["node", "server.js"]
