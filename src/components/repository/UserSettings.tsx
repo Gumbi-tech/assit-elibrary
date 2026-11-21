@@ -379,7 +379,7 @@ export const UserSettings: React.FC<Props> = ({ onBack, onLogout }) => {
             <div
               style={{
                 display: 'flex',
-                justify: 'space-between',
+                
                 alignItems: 'center',
                 padding: '12px 16px',
                 background: '#0F294A',
