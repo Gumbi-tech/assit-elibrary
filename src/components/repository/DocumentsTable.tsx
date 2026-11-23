@@ -7,20 +7,25 @@ import {
   Download,
   Eye,
   FileText,
- } from "lucide-react";
+  Loader2,
+} from "lucide-react";
 import type { RepositoryDocument } from "@/types/repository";
 
 type Props = {
   documents: RepositoryDocument[];
   total: number;
-  onPreview: (doc: RepositoryDocument) => void;
+  onPreview: (doc: RepositoryDocument) => void | Promise<void>;
   /** Called when the user downloads one document. */
-  onDownload?: (doc: RepositoryDocument) => void;
+  onDownload?: (doc: RepositoryDocument) => void | Promise<void>;
   /** Called when the user downloads the selected documents in one operation. */
-  onDownloadSelected?: (docs: RepositoryDocument[]) => void;
+  onDownloadSelected?: (docs: RepositoryDocument[]) => void | Promise<void>;
   /** Optional shared selection state with other views. */
   selectedIds?: Set<string>;
   onSelectionChange?: (next: Set<string>) => void;
+  /** Optional loading indicators controlled by parent. */
+  loadingDocId?: string | null;
+  downloadingDocId?: string | null;
+  isDownloadingSelected?: boolean;
 };
 
 export default function DocumentsTable({
@@ -31,11 +36,13 @@ export default function DocumentsTable({
   onDownloadSelected,
   selectedIds: externalSelectedIds,
   onSelectionChange,
+  loadingDocId = null,
+  downloadingDocId = null,
+  isDownloadingSelected = false,
 }: Props) {
   const [internalSelectedIds, setInternalSelectedIds] = useState<Set<string>>(() => new Set());
   const selectedIds = externalSelectedIds ?? internalSelectedIds;
 
-  // Selection is limited to the documents currently shown in this table.
   const visibleIds = useMemo(
     () => documents.map((doc) => doc.docId),
     [documents]
@@ -81,15 +88,16 @@ export default function DocumentsTable({
   }
 
   function handleDownloadSelected() {
-    if (selectedDocuments.length === 0) return;
+    if (selectedDocuments.length === 0 || isDownloadingSelected) return;
 
     if (onDownloadSelected) {
-      onDownloadSelected(selectedDocuments);
+      void onDownloadSelected(selectedDocuments);
       return;
     }
 
-    // Fallback for integrations that only provide a single-file download handler.
-    selectedDocuments.forEach((doc) => onDownload?.(doc));
+    selectedDocuments.forEach((doc) => {
+      void onDownload?.(doc);
+    });
   }
 
   return (
@@ -111,21 +119,34 @@ export default function DocumentsTable({
               <Check size={13} aria-hidden="true" />
             </span>
             <strong>{selectedDocuments.length} selected</strong>
-            <span>Choose the selected learning materials to download.</span>
+            <span>
+              {isDownloadingSelected
+                ? "Preparing and downloading selected PDFs..."
+                : "Choose the selected learning materials to download."}
+            </span>
           </div>
           <button
             type="button"
             className="primary repo-download-selected"
             onClick={handleDownloadSelected}
-            disabled={!onDownload && !onDownloadSelected}
+            disabled={(!onDownload && !onDownloadSelected) || isDownloadingSelected}
             title={
               onDownload || onDownloadSelected
                 ? "Download selected resources"
                 : "Connect a download handler to enable downloads"
             }
           >
-            <Download size={14} aria-hidden="true" />
-            Download selected
+            {isDownloadingSelected ? (
+              <>
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                Downloading...
+              </>
+            ) : (
+              <>
+                <Download size={14} aria-hidden="true" />
+                Download selected
+              </>
+            )}
           </button>
         </div>
       )}
@@ -171,18 +192,25 @@ export default function DocumentsTable({
           <tbody>
             {documents.map((doc) => {
               const isSelected = selectedIds.has(doc.docId);
+              const isPreviewLoading = loadingDocId === doc.docId;
+              const isDocDownloading =
+                downloadingDocId === doc.docId ||
+                (isDownloadingSelected && isSelected);
+              const isRowBusy = isPreviewLoading || isDocDownloading;
 
               return (
                 <tr
                   key={doc.docId}
-                  className={`repo-document-row${isSelected ? " is-selected" : ""}`}
-                  onClick={() => onPreview(doc)}
+                  className={`repo-document-row${isSelected ? " is-selected" : ""}${isRowBusy ? " is-loading" : ""}`}
+                  aria-busy={isRowBusy}
+                  onClick={() => {
+                    if (!isRowBusy) void onPreview(doc);
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
-                      // Do not trigger preview when keyboard focus is on a control.
-                      if (event.target === event.currentTarget) {
+                      if (event.target === event.currentTarget && !isRowBusy) {
                         event.preventDefault();
-                        onPreview(doc);
+                        void onPreview(doc);
                       }
                     }
                   }}
@@ -214,13 +242,19 @@ export default function DocumentsTable({
                   <td>
                     <div className="repo-resource-cell">
                       <span className="repo-resource-icon">
-                        <FileText size={16} aria-hidden="true" />
+                        {isPreviewLoading ? (
+                          <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          <FileText size={16} aria-hidden="true" />
+                        )}
                       </span>
                       <span>
                         <b className="resource-title">{doc.title}</b>
                         <span className="course-title">{doc.courseTitle}</span>
                         <small>
                           {doc.courseCode} · {doc.author} · {doc.pages} pages
+                          {isPreviewLoading ? " · Loading preview..." : ""}
+                          {isDocDownloading ? " · Downloading..." : ""}
                         </small>
                       </span>
                     </div>
@@ -238,24 +272,43 @@ export default function DocumentsTable({
                       <button
                         type="button"
                         className="secondary"
-                        onClick={() => onPreview(doc)}
+                        onClick={() => void onPreview(doc)}
+                        disabled={isPreviewLoading}
                       >
-                        <Eye size={13} aria-hidden="true" />
-                        Preview
+                        {isPreviewLoading ? (
+                          <>
+                            <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                            Loading...
+                          </>
+                        ) : (
+                          <>
+                            <Eye size={13} aria-hidden="true" />
+                            Preview
+                          </>
+                        )}
                       </button>
                       <button
                         type="button"
                         className="primary"
-                        onClick={() => onDownload?.(doc)}
-                        disabled={!onDownload}
+                        onClick={() => void onDownload?.(doc)}
+                        disabled={!onDownload || isDocDownloading}
                         title={
                           onDownload
                             ? "Download PDF"
                             : "Connect a download handler to enable downloads"
                         }
                       >
-                        <Download size={13} aria-hidden="true" />
-                        Download PDF
+                        {isDocDownloading ? (
+                          <>
+                            <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <Download size={13} aria-hidden="true" />
+                            Download PDF
+                          </>
+                        )}
                       </button>
                     </div>
                   </td>
@@ -279,7 +332,11 @@ export default function DocumentsTable({
           Showing {documents.length} of {total} indexed documents
         </span>
         <span>
-          {selectedDocuments.length > 0
+          {loadingDocId
+            ? "Loading document preview..."
+            : downloadingDocId || isDownloadingSelected
+            ? "Processing PDF download..."
+            : selectedDocuments.length > 0
             ? `${selectedDocuments.length} selected`
             : "Select a row to preview · Use checkboxes to select downloads"}
         </span>

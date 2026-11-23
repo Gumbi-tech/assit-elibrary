@@ -1,24 +1,43 @@
 "use client";
 
 import { useState } from "react";
-import { Download, FileText, X, BookOpen, Info, ZoomIn, ZoomOut } from "lucide-react";
+import { BookOpen, Download, FileText, Info, Loader2, X } from "lucide-react";
 import type { RepositoryDocument } from "@/types/repository";
 
 type Props = {
   document: (RepositoryDocument & { previewUrl?: string }) | null;
   onClose: () => void;
-  onDownload?: (doc: RepositoryDocument) => void;
+  onDownload?: (doc: RepositoryDocument) => void | Promise<void>;
+  isLoading?: boolean;
+  isDownloading?: boolean;
 };
 
-export default function DocumentPreviewModal({ document, onClose, onDownload }: Props) {
+export default function DocumentPreviewModal({
+  document,
+  onClose,
+  onDownload,
+  isLoading = false,
+  isDownloading = false,
+}: Props) {
   const [activeTab, setActiveTab] = useState<"reader" | "info">("reader");
-  const [zoomLevel, setZoomLevel] = useState<number>(100);
+  const [zoomLevel] = useState<number>(100);
+  const [iframeLoaded, setIframeLoaded] = useState<boolean>(false);
+  const [localDownloading, setLocalDownloading] = useState<boolean>(false);
 
   if (!document) return null;
 
-  function handleDownload() {
+  const showBusyDownload = isDownloading || localDownloading;
+
+  async function handleDownload() {
+    if (!document || showBusyDownload) return;
+
     if (onDownload) {
-      onDownload(document);
+      setLocalDownloading(true);
+      try {
+        await onDownload(document);
+      } finally {
+        setLocalDownloading(false);
+      }
     } else {
       console.log("Downloading PDF:", document.title);
     }
@@ -36,6 +55,7 @@ export default function DocumentPreviewModal({ document, onClose, onDownload }: 
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
+        aria-busy={isLoading || showBusyDownload}
       >
         <header className="repo-modal-header">
           <div className="repo-modal-header-left">
@@ -67,28 +87,74 @@ export default function DocumentPreviewModal({ document, onClose, onDownload }: 
         <div className="modal-body repo-modal-scrollable">
           {activeTab === "reader" ? (
             <div className="pdf-reader-container">
-             
-
               <div
                 className="pdf-page-canvas"
                 style={{
                   transform: `scale(${zoomLevel / 100})`,
                   transformOrigin: "top center",
                   width: "100%",
+                  position: "relative",
                 }}
               >
-                {document.previewUrl ? (
-                  <iframe
-                    src={document.previewUrl}
-                    title={document.title}
+                {isLoading ? (
+                  <div
                     style={{
-                      width: "100%",
                       height: "70vh",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "10px",
                       border: "1px solid #CBD5E1",
                       borderRadius: "2px",
-                      background: "#FFFFFF",
+                      background: "#F8FAFC",
+                      color: "#334155",
+                      fontSize: "12px",
                     }}
-                  />
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <Loader2 size={24} className="animate-spin" aria-hidden="true" />
+                    <span>Loading PDF document...</span>
+                  </div>
+                ) : document.previewUrl ? (
+                  <div style={{ position: "relative", width: "100%", height: "70vh" }}>
+                    {!iframeLoaded && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "10px",
+                          background: "#F8FAFC",
+                          color: "#334155",
+                          fontSize: "12px",
+                          zIndex: 1,
+                        }}
+                        role="status"
+                        aria-live="polite"
+                      >
+                        <Loader2 size={22} className="animate-spin" aria-hidden="true" />
+                        <span>Rendering PDF preview...</span>
+                      </div>
+                    )}
+                    <iframe
+                      key={document.previewUrl}
+                      src={document.previewUrl}
+                      title={document.title}
+                      onLoad={() => setIframeLoaded(true)}
+                      style={{
+                        width: "100%",
+                        height: "70vh",
+                        border: "1px solid #CBD5E1",
+                        borderRadius: "2px",
+                        background: "#FFFFFF",
+                      }}
+                    />
+                  </div>
                 ) : (
                   <div className="pdf-page-sheet">
                     <div className="pdf-page-header-stamp">
@@ -143,9 +209,25 @@ export default function DocumentPreviewModal({ document, onClose, onDownload }: 
         </div>
 
         <footer>
-          <button className="secondary" onClick={onClose}>Close</button>
-          <button className="primary" onClick={handleDownload}>
-            <Download size={14} /> Download PDF
+          <button type="button" className="secondary" onClick={onClose}>
+            Close
+          </button>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => void handleDownload()}
+            disabled={showBusyDownload}
+          >
+            {showBusyDownload ? (
+              <>
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                Downloading...
+              </>
+            ) : (
+              <>
+                <Download size={14} /> Download PDF
+              </>
+            )}
           </button>
         </footer>
       </section>

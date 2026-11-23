@@ -86,6 +86,9 @@ export const StudentLibrary: React.FC<Props> = ({
   const [previewDoc, setPreviewDoc] = useState<PreviewableRepositoryDocument | null>(
     null
   );
+  const [previewLoadingDocId, setPreviewLoadingDocId] = useState<string | null>(null);
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
+  const [isDownloadingSelected, setIsDownloadingSelected] = useState(false);
 
   // Resolve the student's assigned department strictly from database records
   const assignedDepartmentRecord = useMemo<DepartmentRecord | null>(() => {
@@ -139,6 +142,7 @@ export const StudentLibrary: React.FC<Props> = ({
   };
 
   const closePreviewModal = useCallback(() => {
+    setPreviewLoadingDocId(null);
     setPreviewDoc((prev) => {
       if (prev?.previewUrl?.startsWith('blob:')) {
         URL.revokeObjectURL(prev.previewUrl);
@@ -333,29 +337,34 @@ export const StudentLibrary: React.FC<Props> = ({
   const handlePreviewDoc = useCallback(
     async (doc: RepositoryDocument) => {
       setPageError('');
-      const match = documents.find((item) => item.id === doc.docId);
-      if (!match) {
-        setPreviewDoc({ ...doc, previewUrl: undefined });
-        return;
-      }
+      setPreviewLoadingDocId(doc.docId);
+      setPreviewDoc({ ...doc, previewUrl: undefined });
 
-      const streamUrl = resolveStreamUrl(match, false);
-      if (streamUrl.startsWith('blob:')) {
-        setPreviewDoc({ ...doc, previewUrl: streamUrl });
-        return;
-      }
+      try {
+        const match = documents.find((item) => item.id === doc.docId);
+        if (!match) {
+          return;
+        }
 
-      const fetched = await fetchAuthorizedDocumentBlobUrl(streamUrl);
-      if (!fetched.ok || !fetched.blobUrl) {
-        setPageError(fetched.error || 'Unable to load PDF preview.');
-        setPreviewDoc({ ...doc, previewUrl: undefined });
-        return;
-      }
+        const streamUrl = resolveStreamUrl(match, false);
+        if (streamUrl.startsWith('blob:')) {
+          setPreviewDoc({ ...doc, previewUrl: streamUrl });
+          return;
+        }
 
-      setPreviewDoc({
-        ...doc,
-        previewUrl: fetched.blobUrl,
-      });
+        const fetched = await fetchAuthorizedDocumentBlobUrl(streamUrl);
+        if (!fetched.ok || !fetched.blobUrl) {
+          setPageError(fetched.error || 'Unable to load PDF preview.');
+          return;
+        }
+
+        setPreviewDoc({
+          ...doc,
+          previewUrl: fetched.blobUrl,
+        });
+      } finally {
+        setPreviewLoadingDocId(null);
+      }
     },
     [documents]
   );
@@ -363,39 +372,51 @@ export const StudentLibrary: React.FC<Props> = ({
   const handleDownload = useCallback(
     async (doc: RepositoryDocument) => {
       setPageError('');
-      const match = documents.find((item) => item.id === doc.docId);
-      if (!match) {
-        setPageError('Document record not found.');
-        return;
+      setDownloadingDocId(doc.docId);
+
+      try {
+        const match = documents.find((item) => item.id === doc.docId);
+        if (!match) {
+          setPageError('Document record not found.');
+          return;
+        }
+
+        const downloadUrl = resolveStreamUrl(match, true);
+        const fetched = await fetchAuthorizedDocumentBlobUrl(downloadUrl);
+        if (!fetched.ok || !fetched.blobUrl) {
+          setPageError(fetched.error || 'Failed to download PDF.');
+          return;
+        }
+
+        const link = document.createElement('a');
+        link.href = fetched.blobUrl;
+        link.download = match.filename || `${doc.title}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(fetched.blobUrl!), 2000);
+
+        setSuccessMsg(`Downloaded "${doc.title}".`);
+        setTimeout(() => setSuccessMsg(''), 4000);
+      } finally {
+        setDownloadingDocId((prev) => (prev === doc.docId ? null : prev));
       }
-
-      const downloadUrl = resolveStreamUrl(match, true);
-      const fetched = await fetchAuthorizedDocumentBlobUrl(downloadUrl);
-      if (!fetched.ok || !fetched.blobUrl) {
-        setPageError(fetched.error || 'Failed to download PDF.');
-        return;
-      }
-
-      const link = document.createElement('a');
-      link.href = fetched.blobUrl;
-      link.download = match.filename || `${doc.title}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(fetched.blobUrl!), 2000);
-
-      setSuccessMsg(`Downloaded "${doc.title}".`);
-      setTimeout(() => setSuccessMsg(''), 4000);
     },
     [documents]
   );
 
   const handleDownloadSelected = useCallback(
     async (docs: RepositoryDocument[]) => {
-      for (const doc of docs) {
-        await handleDownload(doc);
+      if (docs.length === 0) return;
+      setIsDownloadingSelected(true);
+      try {
+        for (const doc of docs) {
+          await handleDownload(doc);
+        }
+        setSelectedIds(new Set());
+      } finally {
+        setIsDownloadingSelected(false);
       }
-      setSelectedIds(new Set());
     },
     [handleDownload]
   );
@@ -547,9 +568,12 @@ export const StudentLibrary: React.FC<Props> = ({
               total={filteredDocuments.length}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
-              onPreview={(d) => void handlePreviewDoc(d)}
-              onDownload={(d) => void handleDownload(d)}
-              onDownloadSelected={(docs) => void handleDownloadSelected(docs)}
+              onPreview={handlePreviewDoc}
+              onDownload={handleDownload}
+              onDownloadSelected={handleDownloadSelected}
+              loadingDocId={previewLoadingDocId}
+              downloadingDocId={downloadingDocId}
+              isDownloadingSelected={isDownloadingSelected}
             />
           )}
         </div>
@@ -558,7 +582,9 @@ export const StudentLibrary: React.FC<Props> = ({
       <DocumentPreviewModal
         document={previewDoc}
         onClose={closePreviewModal}
-        onDownload={(d) => void handleDownload(d)}
+        onDownload={handleDownload}
+        isLoading={Boolean(previewLoadingDocId && previewDoc?.docId === previewLoadingDocId)}
+        isDownloading={Boolean(downloadingDocId && previewDoc?.docId === downloadingDocId)}
       />
     </div>
   );

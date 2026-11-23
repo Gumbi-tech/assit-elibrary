@@ -26,9 +26,9 @@ import {
   AlertCircle,
   LayoutGrid,
   List,
-  BookOpen,
   Pencil,
   Trash2,
+  Loader2,
 } from 'lucide-react';
 import PortalHeader from './PortalHeader';
 import DocumentsTable from './DocumentsTable';
@@ -152,6 +152,8 @@ export const InstructorDashboard: React.FC<Props> = ({
   const [previewDoc, setPreviewDoc] = useState<PreviewableRepositoryDocument | null>(
     null
   );
+  const [previewLoadingDocId, setPreviewLoadingDocId] = useState<string | null>(null);
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
 
   const notify = useCallback((msg: string) => {
     setSuccessMsg(msg);
@@ -166,6 +168,7 @@ export const InstructorDashboard: React.FC<Props> = ({
   };
 
   const closePreviewModal = useCallback(() => {
+    setPreviewLoadingDocId(null);
     setPreviewDoc((prev) => {
       if (prev?.previewUrl?.startsWith('blob:')) {
         URL.revokeObjectURL(prev.previewUrl);
@@ -356,29 +359,34 @@ export const InstructorDashboard: React.FC<Props> = ({
   const handlePreviewDoc = useCallback(
     async (doc: RepositoryDocument) => {
       setPageError('');
-      const match = documents.find((item) => item.id === doc.docId);
-      if (!match) {
-        setPreviewDoc({ ...doc, previewUrl: undefined });
-        return;
-      }
+      setPreviewLoadingDocId(doc.docId);
+      setPreviewDoc({ ...doc, previewUrl: undefined });
 
-      const streamUrl = resolveStreamUrl(match, false);
-      if (streamUrl.startsWith('blob:')) {
-        setPreviewDoc({ ...doc, previewUrl: streamUrl });
-        return;
-      }
+      try {
+        const match = documents.find((item) => item.id === doc.docId);
+        if (!match) {
+          return;
+        }
 
-      const fetched = await fetchAuthorizedDocumentBlobUrl(streamUrl);
-      if (!fetched.ok || !fetched.blobUrl) {
-        setPageError(fetched.error || 'Unable to load PDF preview.');
-        setPreviewDoc({ ...doc, previewUrl: undefined });
-        return;
-      }
+        const streamUrl = resolveStreamUrl(match, false);
+        if (streamUrl.startsWith('blob:')) {
+          setPreviewDoc({ ...doc, previewUrl: streamUrl });
+          return;
+        }
 
-      setPreviewDoc({
-        ...doc,
-        previewUrl: fetched.blobUrl,
-      });
+        const fetched = await fetchAuthorizedDocumentBlobUrl(streamUrl);
+        if (!fetched.ok || !fetched.blobUrl) {
+          setPageError(fetched.error || 'Unable to load PDF preview.');
+          return;
+        }
+
+        setPreviewDoc({
+          ...doc,
+          previewUrl: fetched.blobUrl,
+        });
+      } finally {
+        setPreviewLoadingDocId(null);
+      }
     },
     [documents]
   );
@@ -387,26 +395,32 @@ export const InstructorDashboard: React.FC<Props> = ({
   const handleDownloadDoc = useCallback(
     async (doc: RepositoryDocument) => {
       setPageError('');
-      const match = documents.find((item) => item.id === doc.docId);
-      if (!match) {
-        setPageError('Document record not found.');
-        return;
-      }
+      setDownloadingDocId(doc.docId);
 
-      const downloadUrl = resolveStreamUrl(match, true);
-      const fetched = await fetchAuthorizedDocumentBlobUrl(downloadUrl);
-      if (!fetched.ok || !fetched.blobUrl) {
-        setPageError(fetched.error || 'Failed to download PDF.');
-        return;
-      }
+      try {
+        const match = documents.find((item) => item.id === doc.docId);
+        if (!match) {
+          setPageError('Document record not found.');
+          return;
+        }
 
-      const link = document.createElement('a');
-      link.href = fetched.blobUrl;
-      link.download = match.filename || `${doc.title}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(fetched.blobUrl!), 2000);
+        const downloadUrl = resolveStreamUrl(match, true);
+        const fetched = await fetchAuthorizedDocumentBlobUrl(downloadUrl);
+        if (!fetched.ok || !fetched.blobUrl) {
+          setPageError(fetched.error || 'Failed to download PDF.');
+          return;
+        }
+
+        const link = document.createElement('a');
+        link.href = fetched.blobUrl;
+        link.download = match.filename || `${doc.title}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(fetched.blobUrl!), 2000);
+      } finally {
+        setDownloadingDocId((prev) => (prev === doc.docId ? null : prev));
+      }
     },
     [documents]
   );
@@ -600,7 +614,6 @@ export const InstructorDashboard: React.FC<Props> = ({
         <div className="repo-content">
           <div className="repo-heading">
             <div>
-             
               <p>
                 Manage PDF materials for{' '}
                 <strong>{assignedDepartmentLabel}</strong> and its courses.
@@ -635,15 +648,23 @@ export const InstructorDashboard: React.FC<Props> = ({
                       background: '#FEF2F2',
                     }}
                   >
-                    <Trash2 size={14} aria-hidden="true" />
-                    <span>Delete Selected ({selectedIds.size})</span>
+                    {isSubmitting ? (
+                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Trash2 size={14} aria-hidden="true" />
+                    )}
+                    <span>
+                      {isSubmitting
+                        ? `Deleting (${selectedIds.size})...`
+                        : `Delete Selected (${selectedIds.size})`}
+                    </span>
                   </button>
                 )}
                 <button
                   type="button"
                   className="primary"
                   onClick={openUploadModal}
-                  disabled={departmentDoesNotExist}
+                  disabled={departmentDoesNotExist || isSubmitting}
                   style={{ height: '32px', padding: '0 14px', fontSize: '11px' }}
                 >
                   <FileUp size={14} aria-hidden="true" />
@@ -686,8 +707,6 @@ export const InstructorDashboard: React.FC<Props> = ({
             </div>
 
             <div className="repo-filters">
-           
-
               <label>
                 <span>Course</span>
                 <select
@@ -793,8 +812,21 @@ export const InstructorDashboard: React.FC<Props> = ({
                 <strong>DEPARTMENT &amp; COURSE PDFS</strong>
                 <span>LOADING</span>
               </div>
-              <div style={{ padding: '24px', fontSize: '12px', color: '#475569' }}>
-                Loading PDFs for {assignedDepartmentLabel}...
+              <div
+                style={{
+                  padding: '28px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  fontSize: '12px',
+                  color: '#475569',
+                }}
+                role="status"
+                aria-live="polite"
+              >
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                <span>Loading PDFs for {assignedDepartmentLabel}...</span>
               </div>
             </section>
           ) : filteredDocuments.length === 0 ? (
@@ -820,8 +852,10 @@ export const InstructorDashboard: React.FC<Props> = ({
               total={filteredDocuments.length}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
-              onPreview={(d) => void handlePreviewDoc(d)}
-              onDownload={(d) => void handleDownloadDoc(d)}
+              onPreview={handlePreviewDoc}
+              onDownload={handleDownloadDoc}
+              loadingDocId={previewLoadingDocId}
+              downloadingDocId={downloadingDocId}
             />
           ) : (
             <DocumentsGallery
@@ -839,14 +873,16 @@ export const InstructorDashboard: React.FC<Props> = ({
       <DocumentPreviewModal
         document={previewDoc}
         onClose={closePreviewModal}
-        onDownload={(d) => void handleDownloadDoc(d)}
+        onDownload={handleDownloadDoc}
+        isLoading={Boolean(previewLoadingDocId && previewDoc?.docId === previewLoadingDocId)}
+        isDownloading={Boolean(downloadingDocId && previewDoc?.docId === downloadingDocId)}
       />
 
       {isUploadModalOpen && (
         <div
           className="modal-backdrop"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsUploadModalOpen(false);
+            if (e.target === e.currentTarget && !isSubmitting) setIsUploadModalOpen(false);
           }}
         >
           <section
@@ -862,6 +898,7 @@ export const InstructorDashboard: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setIsUploadModalOpen(false)}
+                disabled={isSubmitting}
                 aria-label="Close modal"
               >
                 <X size={18} />
@@ -892,6 +929,7 @@ export const InstructorDashboard: React.FC<Props> = ({
                     <button
                       type="button"
                       className="secondary"
+                      disabled={isSubmitting}
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <Upload size={13} />
@@ -917,6 +955,7 @@ export const InstructorDashboard: React.FC<Props> = ({
                       id="pdf-title"
                       type="text"
                       required
+                      disabled={isSubmitting}
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="e.g. Week 03 Lecture Notes"
@@ -936,6 +975,7 @@ export const InstructorDashboard: React.FC<Props> = ({
                     <div className="login-input-wrap" style={{ height: '36px' }}>
                       <select
                         id="pdf-course"
+                        disabled={isSubmitting}
                         style={{
                           width: '100%',
                           border: 0,
@@ -961,6 +1001,7 @@ export const InstructorDashboard: React.FC<Props> = ({
                     <div className="login-input-wrap" style={{ height: '36px' }}>
                       <select
                         id="pdf-category"
+                        disabled={isSubmitting}
                         style={{
                           width: '100%',
                           border: 0,
@@ -998,7 +1039,11 @@ export const InstructorDashboard: React.FC<Props> = ({
                 className="primary"
                 disabled={isSubmitting}
               >
-                <FileText size={13} aria-hidden="true" />
+                {isSubmitting ? (
+                  <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <FileText size={13} aria-hidden="true" />
+                )}
                 <span>{isSubmitting ? 'Uploading...' : 'Upload PDF'}</span>
               </button>
             </footer>
@@ -1010,7 +1055,7 @@ export const InstructorDashboard: React.FC<Props> = ({
         <div
           className="modal-backdrop"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setEditingDoc(null);
+            if (e.target === e.currentTarget && !isSubmitting) setEditingDoc(null);
           }}
         >
           <section
@@ -1026,6 +1071,7 @@ export const InstructorDashboard: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setEditingDoc(null)}
+                disabled={isSubmitting}
                 aria-label="Close modal"
               >
                 <X size={18} />
@@ -1047,6 +1093,7 @@ export const InstructorDashboard: React.FC<Props> = ({
                       id="edit-pdf-title"
                       type="text"
                       required
+                      disabled={isSubmitting}
                       value={editTitle}
                       onChange={(e) => setEditTitle(e.target.value)}
                     />
@@ -1065,6 +1112,7 @@ export const InstructorDashboard: React.FC<Props> = ({
                     <div className="login-input-wrap" style={{ height: '36px' }}>
                       <select
                         id="edit-pdf-course"
+                        disabled={isSubmitting}
                         style={{
                           width: '100%',
                           border: 0,
@@ -1090,6 +1138,7 @@ export const InstructorDashboard: React.FC<Props> = ({
                     <div className="login-input-wrap" style={{ height: '36px' }}>
                       <select
                         id="edit-pdf-category"
+                        disabled={isSubmitting}
                         style={{
                           width: '100%',
                           border: 0,
@@ -1127,6 +1176,9 @@ export const InstructorDashboard: React.FC<Props> = ({
                 className="primary"
                 disabled={isSubmitting}
               >
+                {isSubmitting && (
+                  <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                )}
                 <span>{isSubmitting ? 'Saving...' : 'Save Changes'}</span>
               </button>
             </footer>
