@@ -4,8 +4,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
   fetchAuthorizedDocumentBlobUrl,
+  fetchCoursesRequest,
   fetchDepartmentsRequest,
   fetchDocumentsRequest,
+  type CourseRecord,
   type DepartmentRecord,
   type DocumentRecord,
 } from '@/lib/library-api';
@@ -21,7 +23,7 @@ import PortalHeader from './PortalHeader';
 import DocumentsTable from './DocumentsTable';
 import DocumentsGallery from './DocumentsGallery';
 import DocumentPreviewModal from './DocumentPreviewModal';
-import DocumentFilters from './DocumentFilters';
+import DepartmentCourseFilter from './DepartmentCourseFilter';
 import UserSettings from './UserSettings';
 
 type Props = {
@@ -38,6 +40,13 @@ type DocumentRecordWithUrl = DocumentRecord & {
 type PreviewableRepositoryDocument = RepositoryDocument & {
   previewUrl?: string;
 };
+
+const STUDENT_CATEGORIES = [
+  'Lecture Notes',
+  'Lab Manual',
+  'Syllabus & Guide',
+  'Past Assessment',
+] as const;
 
 function normalizeDeptValue(val?: string | null): string {
   return (val || '')
@@ -59,13 +68,15 @@ export const StudentLibrary: React.FC<Props> = ({
   const { currentUser, logout } = useAuth();
 
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
+  const [courses, setCourses] = useState<CourseRecord[]>([]);
   const [documents, setDocuments] = useState<DocumentRecordWithUrl[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   const [showSettings, setShowSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('All Categories');
+  const [courseFilter, setCourseFilter] = useState<string>('ALL');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [viewMode, setViewMode] = useState<'table' | 'gallery'>('gallery');
 
   const [successMsg, setSuccessMsg] = useState('');
@@ -112,19 +123,13 @@ export const StudentLibrary: React.FC<Props> = ({
   const assignedDepartmentLabel =
     assignedDepartmentRecord?.name ||
     currentUser?.department ||
-    'Assigned Department';
+    'Assigned Program';
 
   const departmentDoesNotExist =
     Boolean(currentUser?.department?.trim()) &&
     !isLoading &&
     departments.length > 0 &&
     !assignedDepartmentId;
-
-  const departmentFilterLabel = assignedDepartmentRecord?.name || 'My Department';
-
-  const handleDepartmentChange = (_selectedLabel: string) => {
-    // Students are strictly scoped to their own department
-  };
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024 * 1024) {
@@ -185,23 +190,35 @@ export const StudentLibrary: React.FC<Props> = ({
           : null;
 
         if (currentUser?.department?.trim() && loadedDepts.length > 0 && !matchedDept) {
+          setCourses([]);
           setDocuments([]);
           setSelectedIds(new Set());
           setPageError(
-            `Department "${currentUser.department.trim()}" does not exist in the database.`
+            `Program "${currentUser.department.trim()}" does not exist in the database.`
           );
           return;
         }
 
         if (!matchedDept?.id) {
+          setCourses([]);
           setDocuments([]);
           setSelectedIds(new Set());
           return;
         }
 
-        const docRes = await fetchDocumentsRequest({
-          departmentId: matchedDept.id,
-        });
+        const [courseRes, docRes] = await Promise.all([
+          fetchCoursesRequest(matchedDept.id),
+          fetchDocumentsRequest({
+            departmentId: matchedDept.id,
+            ...(courseFilter !== 'ALL' ? { courseId: courseFilter } : {}),
+          }),
+        ]);
+
+        if (courseRes.ok && courseRes.courses) {
+          setCourses(courseRes.courses);
+        } else if (courseRes.error) {
+          setPageError((prev) => prev || courseRes.error || '');
+        }
 
         if (docRes.ok && docRes.documents) {
           // Strict client-side guard so only documents in the student's department appear
@@ -210,23 +227,39 @@ export const StudentLibrary: React.FC<Props> = ({
           );
           setDocuments(ownDeptDocs);
         } else if (docRes.error) {
-          setPageError(docRes.error);
+          setPageError((prev) => prev || docRes.error || '');
         }
       } catch (err) {
         setPageError(
-          err instanceof Error ? err.message : 'Failed to load department library.'
+          err instanceof Error ? err.message : 'Failed to load Program library.'
         );
       } finally {
         setIsLoading(false);
         setHasLoadedOnce(true);
       }
     },
-    [currentUser, hasLoadedOnce]
+    [courseFilter, currentUser, hasLoadedOnce]
   );
 
   useEffect(() => {
     void loadStudentDocuments({ showSpinner: !hasLoadedOnce });
-  }, [currentUser?.id, currentUser?.department, loadStudentDocuments, hasLoadedOnce]);
+  }, [currentUser?.id, currentUser?.department, courseFilter, loadStudentDocuments, hasLoadedOnce]);
+
+  useEffect(() => {
+    if (
+      courseFilter !== 'ALL' &&
+      courses.length > 0 &&
+      !courses.some((c) => c.id === courseFilter)
+    ) {
+      setCourseFilter('ALL');
+    }
+  }, [courses, courseFilter]);
+
+  const handleResetFilters = useCallback(() => {
+    setCourseFilter('ALL');
+    setCategoryFilter('ALL');
+    setSearchQuery('');
+  }, []);
 
   // Students only read and download PDFs belonging to their own department
   const filteredDocuments = useMemo(() => {
@@ -237,6 +270,10 @@ export const StudentLibrary: React.FC<Props> = ({
         return false;
       }
 
+      if (courseFilter !== 'ALL' && doc.courseId !== courseFilter) {
+        return false;
+      }
+
       const isPdf =
         doc.mimeType === 'application/pdf' ||
         doc.filename.toLowerCase().endsWith('.pdf');
@@ -244,7 +281,7 @@ export const StudentLibrary: React.FC<Props> = ({
 
       const docCategory = doc.category || 'Course PDF';
       if (
-        categoryFilter !== 'All Categories' &&
+        categoryFilter !== 'ALL' &&
         docCategory.toLowerCase() !== categoryFilter.toLowerCase()
       ) {
         return false;
@@ -263,7 +300,7 @@ export const StudentLibrary: React.FC<Props> = ({
 
       return true;
     });
-  }, [documents, assignedDepartmentId, categoryFilter, searchQuery]);
+  }, [documents, assignedDepartmentId, courseFilter, categoryFilter, searchQuery]);
 
   const mappedDocuments: RepositoryDocument[] = useMemo(() => {
     return filteredDocuments.map((doc) => ({
@@ -373,7 +410,9 @@ export const StudentLibrary: React.FC<Props> = ({
   }
 
   const hasActiveFilters =
-    categoryFilter !== 'All Categories' || searchQuery.trim().length > 0;
+    courseFilter !== 'ALL' ||
+    categoryFilter !== 'ALL' ||
+    searchQuery.trim().length > 0;
 
   return (
     <div className="repo-page">
@@ -393,10 +432,7 @@ export const StudentLibrary: React.FC<Props> = ({
       <main className="repo-main" style={{ marginTop: '24px' }}>
         <div className="repo-content">
           <div className="repo-heading">
-            <div>
-              
-    
-            </div>
+            <div />
             <div className="repo-heading-right">
               <div
                 role="group"
@@ -449,13 +485,18 @@ export const StudentLibrary: React.FC<Props> = ({
             </div>
           )}
 
-          <DocumentFilters
-            department={departmentFilterLabel}
-            category={categoryFilter}
-            query={searchQuery}
-            setDepartment={handleDepartmentChange}
-            setCategory={setCategoryFilter}
-            setQuery={setSearchQuery}
+          <DepartmentCourseFilter
+            panelBadge={assignedDepartmentLabel.toUpperCase()}
+            courses={courses}
+            categories={STUDENT_CATEGORIES}
+            courseFilter={courseFilter}
+            categoryFilter={categoryFilter}
+            searchQuery={searchQuery}
+            disabled={departmentDoesNotExist || !assignedDepartmentId}
+            onCourseChange={setCourseFilter}
+            onCategoryChange={setCategoryFilter}
+            onSearchChange={setSearchQuery}
+            onReset={handleResetFilters}
           />
 
           {departmentDoesNotExist ? (
@@ -463,10 +504,10 @@ export const StudentLibrary: React.FC<Props> = ({
               <div className="empty" style={{ padding: '48px 20px', textAlign: 'center' }}>
                 <Lock size={32} style={{ margin: '0 auto 12px', color: '#B91C1C' }} />
                 <h3 style={{ margin: '0 0 6px', color: '#B91C1C', fontSize: '16px', fontWeight: 'bold' }}>
-                  Department Does Not Exist
+                  Program Does Not Exist
                 </h3>
                 <p style={{ margin: 0, color: '#64748B', fontSize: '11px', maxWidth: '420px', marginInline: 'auto' }}>
-                  Your department &ldquo;{currentUser?.department}&rdquo; does not exist in the database.
+                  Your program &ldquo;{currentUser?.department}&rdquo; does not exist in the database.
                 </p>
               </div>
             </section>
@@ -481,12 +522,12 @@ export const StudentLibrary: React.FC<Props> = ({
               <div className="empty" style={{ padding: '48px 20px', textAlign: 'center' }}>
                 <Lock size={32} style={{ margin: '0 auto 12px', color: '#64748B' }} />
                 <h3 style={{ margin: '0 0 6px', color: '#0F294A', fontSize: '16px', fontWeight: 'bold' }}>
-                  {hasActiveFilters ? 'No Matching PDFs Found' : 'No Content in Your Department'}
+                  {hasActiveFilters ? 'No Matching PDFs Found' : 'No Content in Your Program'}
                 </h3>
                 <p style={{ margin: 0, color: '#64748B', fontSize: '11px', maxWidth: '420px', marginInline: 'auto' }}>
                   {hasActiveFilters
                     ? `No PDFs match your active filters in ${assignedDepartmentLabel}.`
-                    : `Your department (${assignedDepartmentLabel}) currently has no content available.`}
+                    : `Your Program (${assignedDepartmentLabel}) currently has no content available.`}
                 </p>
               </div>
             </section>
