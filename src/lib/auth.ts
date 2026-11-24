@@ -29,13 +29,16 @@ export async function verifyPassword(
   return bcrypt.compare(plainPassword, passwordHash);
 }
 
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+
 export async function createSessionToken(payload: SessionPayload): Promise<string> {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('8h')
+    .setExpirationTime('30d')
     .sign(getJwtSecret());
 }
+
 
 export async function verifySessionToken(token: string): Promise<SessionPayload | null> {
   try {
@@ -46,16 +49,18 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
   }
 }
 
+
+
 export async function setSessionCookie(payload: SessionPayload): Promise<void> {
   const token = await createSessionToken(payload);
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: 60 * 60 * 8,
-  });
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  path: '/',
+  maxAge: SESSION_MAX_AGE_SECONDS,
+});
 }
 
 export async function clearSessionCookie(): Promise<void> {

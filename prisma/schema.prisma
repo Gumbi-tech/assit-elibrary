@@ -29,9 +29,9 @@ model Department {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  courses     Course[]
-  users       User[]
-  documents   Document[]
+  courses   Course[]
+  users     User[]
+  documents Document[]
 }
 
 model Course {
@@ -49,23 +49,63 @@ model Course {
   @@index([departmentId])
 }
 
+model Category {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  slug        String     @unique
+  description String?
+  documents   Document[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Program {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  slug        String     @unique
+  description String?
+  documents   Document[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Tag {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  slug      String     @unique
+  documents Document[]
+  createdAt DateTime   @default(now())
+}
+
 model Document {
-  id           String      @id @default(cuid())
-  name         String
-  filename     String
-  path         String
-  size         Int
-  mimeType     String      @default("application/pdf")
-  category     String?
+  id          String  @id @default(cuid())
+  name        String
+  title       String?
+  author      String?
+  description String?
+  filename    String
+  path        String
+  size        Int
+  mimeType    String  @default("application/pdf")
+
+  // New open-library taxonomy & discovery
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  programs   Program[]
+  tags       Tag[]
+
+  // Retained for backward compatibility with existing app version
   courseId     String?
   course       Course?     @relation(fields: [courseId], references: [id], onDelete: SetNull)
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  uploadedById String?
-  uploadedBy   User?       @relation("UploadedDocuments", fields: [uploadedById], references: [id], onDelete: SetNull)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
 
+  uploadedById String?
+  uploadedBy   User?    @relation("UploadedDocuments", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([categoryId])
   @@index([courseId])
   @@index([departmentId])
   @@index([uploadedById])
@@ -91,7 +131,7 @@ model User {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  uploadedDocuments  Document[]    @relation("UploadedDocuments")
+  uploadedDocuments Document[] @relation("UploadedDocuments")
 
   @@index([role])
   @@index([status])

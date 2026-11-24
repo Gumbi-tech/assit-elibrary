@@ -1,29 +1,28 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
   fetchAuthorizedDocumentBlobUrl,
-  fetchCoursesRequest,
-  fetchDepartmentsRequest,
   fetchDocumentsRequest,
-  type CourseRecord,
-  type DepartmentRecord,
   type DocumentRecord,
 } from '@/lib/library-api';
 import type { RepositoryDocument } from '@/types/repository';
 import {
   AlertCircle,
-  LayoutGrid,
-  List,
-  Lock,
+  BookMarked,
+  BookOpen,
+  Download,
+  Eye,
+  Filter,
+  Search,
   ShieldCheck,
+  Sparkles,
+  X,
 } from 'lucide-react';
 import PortalHeader from './PortalHeader';
-import DocumentsTable from './DocumentsTable';
-import DocumentsGallery from './DocumentsGallery';
 import DocumentPreviewModal from './DocumentPreviewModal';
-import DepartmentCourseFilter from './DepartmentCourseFilter';
+import PdfThumbnail from './PdfThumbnail';
 import UserSettings from './UserSettings';
 
 type Props = {
@@ -32,7 +31,15 @@ type Props = {
   onNavigateHome?: () => void;
 };
 
-type DocumentRecordWithUrl = DocumentRecord & {
+type TagLike = string | { name: string };
+type ProgramLike = string | { name: string };
+
+type OpenLibraryDocumentRecord = DocumentRecord & {
+  author?: string | null;
+  coverUrl?: string | null;
+  description?: string | null;
+  tags?: TagLike[];
+  programs?: ProgramLike[];
   signedUrl?: string;
   uploadedBy?: { id: string; fullName: string; email: string } | null;
 };
@@ -41,23 +48,138 @@ type PreviewableRepositoryDocument = RepositoryDocument & {
   previewUrl?: string;
 };
 
-const STUDENT_CATEGORIES = [
-  'Lecture Notes',
-  'Lab Manual',
-  'Syllabus & Guide',
-  'Past Assessment',
-] as const;
-
-function normalizeDeptValue(val?: string | null): string {
-  return (val || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ');
+interface RelatedBookMatch {
+  doc: OpenLibraryDocumentRecord;
+  score: number;
+  sharedPrograms: string[];
+  sharedTags: string[];
+  isAdjacentCategoryMatch: boolean;
+  reason: string;
 }
 
-function getDocDepartmentId(doc: DocumentRecordWithUrl): string | null {
-  return doc.departmentId ?? doc.course?.departmentId ?? null;
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+function extractNames(items?: Array<string | { name: string }>): string[] {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => (typeof item === 'string' ? item : item?.name || ''))
+    .map((val) => val.trim())
+    .filter(Boolean);
+}
+
+function getGroupLetter(title: string): string {
+  const first = (title || '').trim().charAt(0).toUpperCase();
+  return /^[A-Z]$/.test(first) ? first : '#';
+}
+
+function formatFileSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 KB';
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getRelatedOpenLibraryBooks(
+  target: OpenLibraryDocumentRecord,
+  catalog: OpenLibraryDocumentRecord[]
+): RelatedBookMatch[] {
+  const targetCat = (target.category || '').trim().toLowerCase();
+  const targetPrograms = extractNames(target.programs).map((p) => p.toLowerCase());
+  const targetTags = extractNames(target.tags).map((t) => t.toLowerCase());
+
+  const matches: RelatedBookMatch[] = [];
+
+  for (const candidate of catalog) {
+    if (candidate.id === target.id) continue;
+
+    const candCat = (candidate.category || '').trim().toLowerCase();
+    const candPrograms = extractNames(candidate.programs);
+    const candTags = extractNames(candidate.tags);
+
+    const sharedPrograms = candPrograms.filter((p) =>
+      targetPrograms.includes(p.toLowerCase())
+    );
+    const sharedTags = candTags.filter((t) =>
+      targetTags.includes(t.toLowerCase())
+    );
+    const sameCategory = Boolean(targetCat && candCat && targetCat === candCat);
+    const isAdjacentCategoryMatch =
+      sharedPrograms.length > 0 &&
+      Boolean(targetCat && candCat && targetCat !== candCat);
+
+    let score = 0;
+    if (sharedPrograms.length > 0) {
+      score += sharedPrograms.length * (isAdjacentCategoryMatch ? 6 : 4);
+    }
+    if (sharedTags.length > 0) {
+      score += sharedTags.length * 3;
+    }
+    if (sameCategory) {
+      score += 2;
+    }
+
+    if (score > 0) {
+      const reasons: string[] = [];
+      if (sharedPrograms.length > 0) {
+        reasons.push(
+          isAdjacentCategoryMatch
+            ? `Program badge (${sharedPrograms.join(', ')}) in ${candidate.category || 'adjacent category'}`
+            : `Program badge (${sharedPrograms.join(', ')})`
+        );
+      }
+      if (sharedTags.length > 0) {
+        reasons.push(`Tags: ${sharedTags.map((t) => `#${t}`).join(', ')}`);
+      }
+      if (sameCategory && sharedPrograms.length === 0) {
+        reasons.push(`Category: ${candidate.category}`);
+      }
+
+      matches.push({
+        doc: candidate,
+        score,
+        sharedPrograms,
+        sharedTags,
+        isAdjacentCategoryMatch,
+        reason: reasons.join(' · '),
+      });
+    }
+  }
+
+  return matches
+    .sort((a, b) => b.score - a.score || a.doc.name.localeCompare(b.doc.name))
+    .slice(0, 4);
+}
+
+async function resolveThumbnailSource(
+  doc: OpenLibraryDocumentRecord
+): Promise<string | null> {
+  const streamUrl =
+    doc.signedUrl || `/api/documents/${encodeURIComponent(doc.id)}/file`;
+
+  if (streamUrl.startsWith('blob:')) {
+    return streamUrl;
+  }
+
+  try {
+    const fetched = await fetchAuthorizedDocumentBlobUrl(streamUrl);
+
+    if (fetched.ok && fetched.blobUrl) {
+      return fetched.blobUrl;
+    }
+
+    console.error(
+      `[StudentLibrary] Could not fetch thumbnail PDF for ${doc.name}:`,
+      fetched.error
+    );
+  } catch (error) {
+    console.error(
+      `[StudentLibrary] Thumbnail source error for ${doc.name}:`,
+      error
+    );
+  }
+
+  return null;
 }
 
 export const StudentLibrary: React.FC<Props> = ({
@@ -67,79 +189,41 @@ export const StudentLibrary: React.FC<Props> = ({
 }) => {
   const { currentUser, logout } = useAuth();
 
-  const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
-  const [courses, setCourses] = useState<CourseRecord[]>([]);
-  const [documents, setDocuments] = useState<DocumentRecordWithUrl[]>([]);
+  const [dbCategories, setDbCategories] = useState<string[]>([]);
+  const [documents, setDocuments] = useState<OpenLibraryDocumentRecord[]>([]);
+  const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
+  const thumbnailBlobUrls = useRef<Set<string>>(new Set());
+
   const [showSettings, setShowSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [courseFilter, setCourseFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
-  const [viewMode, setViewMode] = useState<'table' | 'gallery'>('gallery');
+  const [programBadgeFilter, setProgramBadgeFilter] = useState<string>('ALL');
+  const [activeLetter, setActiveLetter] = useState<string>('ALL');
+  const [sortBy, setSortBy] = useState<'title' | 'recent'>('title');
 
   const [successMsg, setSuccessMsg] = useState('');
   const [pageError, setPageError] = useState('');
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [relatedTargetDoc, setRelatedTargetDoc] =
+    useState<OpenLibraryDocumentRecord | null>(null);
   const [previewDoc, setPreviewDoc] = useState<PreviewableRepositoryDocument | null>(
     null
   );
   const [previewLoadingDocId, setPreviewLoadingDocId] = useState<string | null>(null);
   const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
-  const [isDownloadingSelected, setIsDownloadingSelected] = useState(false);
 
-  // Resolve the student's assigned department strictly from database records
-  const assignedDepartmentRecord = useMemo<DepartmentRecord | null>(() => {
-    const userDeptId = (currentUser as { departmentId?: string | null } | null)
-      ?.departmentId;
-    if (userDeptId) {
-      const byId = departments.find((d) => d.id === userDeptId);
-      if (byId) return byId;
-    }
+  useEffect(() => {
+    return () => {
+      thumbnailBlobUrls.current.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
 
-    const normalizedUserDept = normalizeDeptValue(currentUser?.department);
-    if (!normalizedUserDept) return null;
-
-    return (
-      departments.find((d) => {
-        const normName = normalizeDeptValue(d.name);
-        const normCode = normalizeDeptValue(d.code);
-        const initials = normName
-          .split(' ')
-          .filter(Boolean)
-          .map((w) => w[0])
-          .join('');
-        return (
-          normName === normalizedUserDept ||
-          normCode === normalizedUserDept ||
-          initials === normalizedUserDept ||
-          normName.includes(normalizedUserDept) ||
-          normalizedUserDept.includes(normName)
-        );
-      }) ?? null
-    );
-  }, [currentUser, departments]);
-
-  const assignedDepartmentId = assignedDepartmentRecord?.id ?? '';
-  const assignedDepartmentLabel =
-    assignedDepartmentRecord?.name ||
-    currentUser?.department ||
-    'Assigned Program';
-
-  const departmentDoesNotExist =
-    Boolean(currentUser?.department?.trim()) &&
-    !isLoading &&
-    departments.length > 0 &&
-    !assignedDepartmentId;
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024 * 1024) {
-      return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
+      thumbnailBlobUrls.current.clear();
+    };
+  }, []);
 
   const closePreviewModal = useCallback(() => {
     setPreviewLoadingDocId(null);
@@ -151,139 +235,146 @@ export const StudentLibrary: React.FC<Props> = ({
     });
   }, []);
 
-  const loadStudentDocuments = useCallback(
+  const loadOpenLibraryData = useCallback(
     async (opts?: { showSpinner?: boolean }) => {
       const showSpinner = opts?.showSpinner ?? !hasLoadedOnce;
       if (showSpinner) setIsLoading(true);
       setPageError('');
 
       try {
-        const deptRes = await fetchDepartmentsRequest();
-        const loadedDepts =
-          deptRes.ok && deptRes.departments ? deptRes.departments : [];
-
-        if (deptRes.ok && deptRes.departments) {
-          setDepartments(deptRes.departments);
-        } else if (deptRes.error) {
-          setPageError(deptRes.error);
-        }
-
-        const userDeptId = (currentUser as { departmentId?: string | null } | null)
-          ?.departmentId;
-        const normalizedUserDept = normalizeDeptValue(currentUser?.department);
-
-        const matchedDept = userDeptId
-          ? loadedDepts.find((d) => d.id === userDeptId) ?? null
-          : normalizedUserDept
-          ? loadedDepts.find((d) => {
-              const normName = normalizeDeptValue(d.name);
-              const normCode = normalizeDeptValue(d.code);
-              const initials = normName
-                .split(' ')
-                .filter(Boolean)
-                .map((w) => w[0])
-                .join('');
-              return (
-                normName === normalizedUserDept ||
-                normCode === normalizedUserDept ||
-                initials === normalizedUserDept ||
-                normName.includes(normalizedUserDept) ||
-                normalizedUserDept.includes(normName)
-              );
-            }) ?? null
-          : null;
-
-        if (currentUser?.department?.trim() && loadedDepts.length > 0 && !matchedDept) {
-          setCourses([]);
-          setDocuments([]);
-          setSelectedIds(new Set());
-          setPageError(
-            `Program "${currentUser.department.trim()}" does not exist in the database.`
-          );
-          return;
-        }
-
-        if (!matchedDept?.id) {
-          setCourses([]);
-          setDocuments([]);
-          setSelectedIds(new Set());
-          return;
-        }
-
-        const [courseRes, docRes] = await Promise.all([
-          fetchCoursesRequest(matchedDept.id),
-          fetchDocumentsRequest({
-            departmentId: matchedDept.id,
-            ...(courseFilter !== 'ALL' ? { courseId: courseFilter } : {}),
-          }),
+        const [docRes, catRes] = await Promise.all([
+          fetchDocumentsRequest(),
+          fetch('/api/categories', { cache: 'no-store' })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null),
         ]);
 
-        if (courseRes.ok && courseRes.courses) {
-          setCourses(courseRes.courses);
-        } else if (courseRes.error) {
-          setPageError((prev) => prev || courseRes.error || '');
+        if (docRes.ok && docRes.documents) {
+          setDocuments(docRes.documents as OpenLibraryDocumentRecord[]);
+        } else if (docRes.error) {
+          setPageError(docRes.error);
         }
 
-        if (docRes.ok && docRes.documents) {
-          // Strict client-side guard so only documents in the student's department appear
-          const ownDeptDocs = (docRes.documents as DocumentRecordWithUrl[]).filter(
-            (doc) => getDocDepartmentId(doc) === matchedDept.id
-          );
-          setDocuments(ownDeptDocs);
-        } else if (docRes.error) {
-          setPageError((prev) => prev || docRes.error || '');
+        if (catRes) {
+          const rawCats = Array.isArray(catRes)
+            ? catRes
+            : Array.isArray(catRes?.categories)
+            ? catRes.categories
+            : [];
+          const names = Array.from(
+            new Map(
+              rawCats
+                .map((c: { name?: string } | string) =>
+                  typeof c === 'string' ? c.trim() : (c?.name || '').trim()
+                )
+                .filter(Boolean)
+                .map((n: string) => [n.toLowerCase(), n])
+            ).values()
+          ) as string[];
+          setDbCategories(names);
         }
       } catch (err) {
         setPageError(
-          err instanceof Error ? err.message : 'Failed to load Program library.'
+          err instanceof Error ? err.message : 'Failed to load open library catalog.'
         );
       } finally {
         setIsLoading(false);
         setHasLoadedOnce(true);
       }
     },
-    [courseFilter, currentUser, hasLoadedOnce]
+    [hasLoadedOnce]
   );
 
   useEffect(() => {
-    void loadStudentDocuments({ showSpinner: !hasLoadedOnce });
-  }, [currentUser?.id, currentUser?.department, courseFilter, loadStudentDocuments, hasLoadedOnce]);
+    void loadOpenLibraryData({ showSpinner: !hasLoadedOnce });
+  }, [currentUser?.id, loadOpenLibraryData, hasLoadedOnce]);
 
   useEffect(() => {
-    if (
-      courseFilter !== 'ALL' &&
-      courses.length > 0 &&
-      !courses.some((c) => c.id === courseFilter)
-    ) {
-      setCourseFilter('ALL');
+    let cancelled = false;
+
+    const pdfDocs = documents.filter((doc) => {
+      return (
+        doc.mimeType === 'application/pdf' ||
+        doc.filename.toLowerCase().endsWith('.pdf')
+      );
+    });
+
+    async function resolveAllThumbnails() {
+      for (const doc of pdfDocs) {
+        if (cancelled) break;
+
+        const resolved = await resolveThumbnailSource(doc);
+
+        if (cancelled) {
+          if (resolved?.startsWith('blob:')) {
+            URL.revokeObjectURL(resolved);
+          }
+          break;
+        }
+
+        if (resolved) {
+          if (resolved.startsWith('blob:')) {
+            thumbnailBlobUrls.current.add(resolved);
+          }
+
+          setThumbUrls((prev) => ({
+            ...prev,
+            [doc.id]: resolved,
+          }));
+        }
+      }
     }
-  }, [courses, courseFilter]);
+
+    void resolveAllThumbnails();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documents]);
+
+  const categoryOptions = useMemo(() => {
+    const merged = new Map<string, string>();
+    for (const cat of dbCategories) {
+      merged.set(cat.toLowerCase(), cat);
+    }
+    for (const doc of documents) {
+      const docCat = (doc.category || '').trim();
+      if (docCat && !merged.has(docCat.toLowerCase())) {
+        merged.set(docCat.toLowerCase(), docCat);
+      }
+    }
+    return Array.from(merged.values()).sort((a, b) => a.localeCompare(b));
+  }, [dbCategories, documents]);
+
+  const programBadgeOptions = useMemo(() => {
+    const merged = new Map<string, string>();
+    for (const doc of documents) {
+      for (const prog of extractNames(doc.programs)) {
+        if (!merged.has(prog.toLowerCase())) {
+          merged.set(prog.toLowerCase(), prog);
+        }
+      }
+    }
+    return Array.from(merged.values()).sort((a, b) => a.localeCompare(b));
+  }, [documents]);
 
   const handleResetFilters = useCallback(() => {
-    setCourseFilter('ALL');
     setCategoryFilter('ALL');
+    setProgramBadgeFilter('ALL');
+    setActiveLetter('ALL');
     setSearchQuery('');
   }, []);
 
-  // Students only read and download PDFs belonging to their own department
   const filteredDocuments = useMemo(() => {
-    if (!assignedDepartmentId) return [];
+    const q = searchQuery.trim().toLowerCase();
 
-    return documents.filter((doc) => {
-      if (getDocDepartmentId(doc) !== assignedDepartmentId) {
-        return false;
-      }
-
-      if (courseFilter !== 'ALL' && doc.courseId !== courseFilter) {
-        return false;
-      }
-
+    const list = documents.filter((doc) => {
       const isPdf =
         doc.mimeType === 'application/pdf' ||
         doc.filename.toLowerCase().endsWith('.pdf');
       if (!isPdf) return false;
 
-      const docCategory = doc.category || 'Course PDF';
+      const docCategory = (doc.category || 'Uncategorized').trim();
       if (
         categoryFilter !== 'ALL' &&
         docCategory.toLowerCase() !== categoryFilter.toLowerCase()
@@ -291,44 +382,106 @@ export const StudentLibrary: React.FC<Props> = ({
         return false;
       }
 
-      const q = searchQuery.trim().toLowerCase();
-      if (q) {
-        const matchesName = doc.name.toLowerCase().includes(q);
-        const matchesFile = doc.filename.toLowerCase().includes(q);
-        const matchesCourse =
-          doc.course?.code?.toLowerCase().includes(q) ||
-          doc.course?.title?.toLowerCase().includes(q) ||
-          doc.id.toLowerCase().includes(q);
-        if (!matchesName && !matchesFile && !matchesCourse) return false;
+      const docPrograms = extractNames(doc.programs);
+      if (
+        programBadgeFilter !== 'ALL' &&
+        !docPrograms.some(
+          (p) => p.toLowerCase() === programBadgeFilter.toLowerCase()
+        )
+      ) {
+        return false;
       }
 
-      return true;
-    });
-  }, [documents, assignedDepartmentId, courseFilter, categoryFilter, searchQuery]);
+      if (activeLetter !== 'ALL' && getGroupLetter(doc.name) !== activeLetter) {
+        return false;
+      }
 
-  const mappedDocuments: RepositoryDocument[] = useMemo(() => {
-    return filteredDocuments.map((doc) => ({
+      if (!q) return true;
+
+      const docTags = extractNames(doc.tags);
+      return (
+        doc.name.toLowerCase().includes(q) ||
+        (doc.author || '').toLowerCase().includes(q) ||
+        docCategory.toLowerCase().includes(q) ||
+        doc.filename.toLowerCase().includes(q) ||
+        docPrograms.some((p) => p.toLowerCase().includes(q)) ||
+        docTags.some((t) => t.toLowerCase().includes(q))
+      );
+    });
+
+    if (sortBy === 'recent') {
+      return [...list].sort(
+        (a, b) =>
+          new Date(b.createdAt || 0).getTime() -
+          new Date(a.createdAt || 0).getTime()
+      );
+    }
+
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  }, [
+    documents,
+    categoryFilter,
+    programBadgeFilter,
+    activeLetter,
+    searchQuery,
+    sortBy,
+  ]);
+
+  const shelfSections = useMemo(() => {
+    const bucketMap = new Map<string, OpenLibraryDocumentRecord[]>();
+    for (const doc of filteredDocuments) {
+      const key = getGroupLetter(doc.name);
+      const list = bucketMap.get(key) || [];
+      list.push(doc);
+      bucketMap.set(key, list);
+    }
+
+    const sortedLetters = Array.from(bucketMap.keys()).sort((a, b) => {
+      if (a === '#') return 1;
+      if (b === '#') return -1;
+      return a.localeCompare(b);
+    });
+
+    return sortedLetters.map((letter) => ({
+      letter,
+      books: bucketMap.get(letter) || [],
+    }));
+  }, [filteredDocuments]);
+
+  const relatedMatches = useMemo(() => {
+    if (!relatedTargetDoc) return [];
+    return getRelatedOpenLibraryBooks(relatedTargetDoc, documents);
+  }, [relatedTargetDoc, documents]);
+
+  const mapToRepositoryDocument = (
+    doc: OpenLibraryDocumentRecord
+  ): RepositoryDocument => {
+    const programs = extractNames(doc.programs);
+    const tags = extractNames(doc.tags);
+    return {
       docId: doc.id,
-      courseCode: doc.course?.code || assignedDepartmentRecord?.code || 'DEPT',
-      courseTitle: doc.course?.title || assignedDepartmentLabel,
-      department: doc.department?.name || assignedDepartmentLabel,
+      courseCode: doc.category || 'OPEN',
+      courseTitle: programs[0] || doc.category || 'Open Library',
+      department: programs.join(', ') || 'Open Access',
       title: doc.name,
-      summary: `${doc.category || 'Course PDF'} · ${doc.filename}`,
-      category: doc.category || 'Course PDF',
-      author: doc.uploadedBy?.fullName || 'Course Instructor',
+      summary: `${doc.category || 'General'} · ${doc.filename}`,
+      category: doc.category || 'General',
+      author: doc.author || doc.uploadedBy?.fullName || 'Library Contributor',
       size: formatFileSize(doc.size),
       pages: 1,
       uploadDate: doc.createdAt
         ? doc.createdAt.split('T')[0]
         : new Date().toISOString().split('T')[0],
-      topics: doc.course
-        ? `${doc.course.code} - ${doc.course.title}`
-        : assignedDepartmentLabel,
-    }));
-  }, [filteredDocuments, assignedDepartmentRecord?.code, assignedDepartmentLabel]);
+      topics: tags.map((t) => `#${t}`).join(' '),
+    };
+  };
 
-  const resolveStreamUrl = (doc: DocumentRecordWithUrl, download = false): string => {
-    const base = doc.signedUrl || `/api/documents/${encodeURIComponent(doc.id)}/file`;
+  const resolveStreamUrl = (
+    doc: OpenLibraryDocumentRecord,
+    download = false
+  ): string => {
+    const base =
+      doc.signedUrl || `/api/documents/${encodeURIComponent(doc.id)}/file`;
     if (!download) return base;
     const sep = base.includes('?') ? '&' : '?';
     return `${base}${sep}download=1`;
@@ -342,9 +495,7 @@ export const StudentLibrary: React.FC<Props> = ({
 
       try {
         const match = documents.find((item) => item.id === doc.docId);
-        if (!match) {
-          return;
-        }
+        if (!match) return;
 
         const streamUrl = resolveStreamUrl(match, false);
         if (streamUrl.startsWith('blob:')) {
@@ -405,22 +556,6 @@ export const StudentLibrary: React.FC<Props> = ({
     [documents]
   );
 
-  const handleDownloadSelected = useCallback(
-    async (docs: RepositoryDocument[]) => {
-      if (docs.length === 0) return;
-      setIsDownloadingSelected(true);
-      try {
-        for (const doc of docs) {
-          await handleDownload(doc);
-        }
-        setSelectedIds(new Set());
-      } finally {
-        setIsDownloadingSelected(false);
-      }
-    },
-    [handleDownload]
-  );
-
   if (showSettings) {
     return (
       <UserSettings
@@ -431,15 +566,16 @@ export const StudentLibrary: React.FC<Props> = ({
   }
 
   const hasActiveFilters =
-    courseFilter !== 'ALL' ||
     categoryFilter !== 'ALL' ||
+    programBadgeFilter !== 'ALL' ||
+    activeLetter !== 'ALL' ||
     searchQuery.trim().length > 0;
 
   return (
     <div className="repo-page">
       <PortalHeader
         appName="Digital Resource Library"
-        workspaceName={`Student Portal · ${assignedDepartmentLabel}`}
+        workspaceName="Open Library · Picture Shelf"
         version="v1.0"
         systemStatus="Online"
         onSearch={(q) => {
@@ -451,40 +587,251 @@ export const StudentLibrary: React.FC<Props> = ({
       />
 
       <main className="repo-main" style={{ marginTop: '24px' }}>
-        <div className="repo-content">
-          <div className="repo-heading">
-            <div />
-            <div className="repo-heading-right">
-              <div
-                role="group"
-                aria-label="Layout view"
-                style={{ display: 'inline-flex', border: '1px solid #AAB7C6', borderRadius: '2px' }}
-              >
-                <button
-                  type="button"
-                  className={viewMode === 'table' ? 'primary' : 'secondary'}
-                  onClick={() => setViewMode('table')}
-                  style={{ border: 'none', minHeight: '32px', padding: '0 10px', fontSize: '11px' }}
-                  title="Table View"
-                >
-                  <List size={14} /> Table View
-                </button>
-                <button
-                  type="button"
-                  className={viewMode === 'gallery' ? 'primary' : 'secondary'}
-                  onClick={() => setViewMode('gallery')}
-                  style={{ border: 'none', minHeight: '32px', padding: '0 10px', fontSize: '11px' }}
-                  title="Gallery View"
-                >
-                  <LayoutGrid size={14} /> Gallery View
-                </button>
+        <div
+          className="repo-content"
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+        >
+          {/* Shelf Header & Filter Bar */}
+          <section className="repo-panel">
+            <div
+              style={{
+                padding: '14px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <BookOpen size={18} aria-hidden="true" />
+                <div>
+                  <strong style={{ fontSize: '15px' }}>Open Library Books</strong>
+                  <span
+                    style={{
+                      marginLeft: '8px',
+                      fontSize: '11px',
+                      padding: '2px 7px',
+                      background: '#F1F5F9',
+                      borderRadius: '2px',
+                      color: '#334155',
+                    }}
+                  >
+                    {filteredDocuments.length}
+                  </span>
+                </div>
               </div>
-              <div className="repo-count">
-                <strong>{filteredDocuments.length}</strong>
-                <span>AVAILABLE PDFs</span>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <select
+                  aria-label="Sort books"
+                  value={sortBy}
+                  onChange={(e) =>
+                    setSortBy(e.target.value as 'title' | 'recent')
+                  }
+                  style={{
+                    minHeight: '32px',
+                    fontSize: '11px',
+                    padding: '0 8px',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '2px',
+                    background: '#FFFFFF',
+                  }}
+                >
+                  <option value="title">Title (A–Z)</option>
+                  <option value="recent">Recently Added</option>
+                </select>
+
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '2px',
+                    padding: '0 8px',
+                    minHeight: '32px',
+                    background: '#FFFFFF',
+                  }}
+                >
+                  <Filter size={13} aria-hidden="true" />
+                  <select
+                    aria-label="Filter by category"
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      fontSize: '11px',
+                    }}
+                  >
+                    <option value="ALL">All Categories</option>
+                    {categoryOptions.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <select
+                  aria-label="Filter by program badge"
+                  value={programBadgeFilter}
+                  onChange={(e) => setProgramBadgeFilter(e.target.value)}
+                  style={{
+                    minHeight: '32px',
+                    fontSize: '11px',
+                    padding: '0 8px',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '2px',
+                    background: '#FFFFFF',
+                  }}
+                >
+                  <option value="ALL">All Program Badges</option>
+                  {programBadgeOptions.map((prog) => (
+                    <option key={prog} value={prog}>
+                      {prog}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
-          </div>
+
+            {/* Search + Alphabetical Jump Strip */}
+            <div
+              style={{
+                padding: '0 16px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: '2px',
+                  padding: '6px 10px',
+                  background: '#FFFFFF',
+                }}
+              >
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search title, author, category, program badge, or tag..."
+                  style={{
+                    width: '100%',
+                    border: 'none',
+                    outline: 'none',
+                    fontSize: '12px',
+                    background: 'transparent',
+                  }}
+                />
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{
+                      minHeight: '24px',
+                      fontSize: '10px',
+                      padding: '0 8px',
+                    }}
+                    onClick={handleResetFilters}
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              <div
+                role="navigation"
+                aria-label="Alphabetical shelf index"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '4px',
+                  flexWrap: 'wrap',
+                  fontSize: '11px',
+                }}
+              >
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {ALPHABET.map((letter) => {
+                    const selected = activeLetter === letter;
+                    return (
+                      <button
+                        key={letter}
+                        type="button"
+                        onClick={() =>
+                          setActiveLetter((prev) =>
+                            prev === letter ? 'ALL' : letter
+                          )
+                        }
+                        style={{
+                          padding: '2px 5px',
+                          border: 'none',
+                          borderRadius: '2px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          fontWeight: selected ? 'bold' : 'normal',
+                          background: selected ? '#0F294A' : 'transparent',
+                          color: selected ? '#FFFFFF' : '#475569',
+                        }}
+                      >
+                        {letter}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveLetter((prev) => (prev === '#' ? 'ALL' : '#'))
+                    }
+                    style={{
+                      padding: '2px 6px',
+                      border: 'none',
+                      borderRadius: '2px',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: activeLetter === '#' ? 'bold' : 'normal',
+                      background: activeLetter === '#' ? '#0F294A' : 'transparent',
+                      color: activeLetter === '#' ? '#FFFFFF' : '#475569',
+                    }}
+                  >
+                    #
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveLetter('ALL')}
+                  style={{
+                    padding: '2px 8px',
+                    border: 'none',
+                    borderRadius: '2px',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: activeLetter === 'ALL' ? 'bold' : 'normal',
+                    background: activeLetter === 'ALL' ? '#E2E8F0' : 'transparent',
+                    color: '#0F294A',
+                  }}
+                >
+                  ALL
+                </button>
+              </div>
+            </div>
+          </section>
 
           {pageError && (
             <div
@@ -506,85 +853,391 @@ export const StudentLibrary: React.FC<Props> = ({
             </div>
           )}
 
-          <DepartmentCourseFilter
-            panelBadge={assignedDepartmentLabel.toUpperCase()}
-            courses={courses}
-            categories={STUDENT_CATEGORIES}
-            courseFilter={courseFilter}
-            categoryFilter={categoryFilter}
-            searchQuery={searchQuery}
-            disabled={departmentDoesNotExist || !assignedDepartmentId}
-            onCourseChange={setCourseFilter}
-            onCategoryChange={setCategoryFilter}
-            onSearchChange={setSearchQuery}
-            onReset={handleResetFilters}
-          />
-
-          {departmentDoesNotExist ? (
+          {/* Picture-Based Book Rows Grouped by Letter */}
+          {isLoading ? (
             <section className="repo-panel">
-              <div className="empty" style={{ padding: '48px 20px', textAlign: 'center' }}>
-                <Lock size={32} style={{ margin: '0 auto 12px', color: '#B91C1C' }} />
-                <h3 style={{ margin: '0 0 6px', color: '#B91C1C', fontSize: '16px', fontWeight: 'bold' }}>
-                  Program Does Not Exist
-                </h3>
-                <p style={{ margin: 0, color: '#64748B', fontSize: '11px', maxWidth: '420px', marginInline: 'auto' }}>
-                  Your program &ldquo;{currentUser?.department}&rdquo; does not exist in the database.
-                </p>
+              <div
+                style={{
+                  padding: '32px',
+                  textAlign: 'center',
+                  fontSize: '12px',
+                  color: '#475569',
+                }}
+              >
+                Loading open library shelf...
               </div>
             </section>
-          ) : isLoading ? (
+          ) : shelfSections.length === 0 ? (
             <section className="repo-panel">
-              <div style={{ padding: '32px', textAlign: 'center', fontSize: '12px', color: '#475569' }}>
-                Loading PDFs for {assignedDepartmentLabel}...
-              </div>
-            </section>
-          ) : filteredDocuments.length === 0 ? (
-            <section className="repo-panel">
-              <div className="empty" style={{ padding: '48px 20px', textAlign: 'center' }}>
-                <Lock size={32} style={{ margin: '0 auto 12px', color: '#64748B' }} />
-                <h3 style={{ margin: '0 0 6px', color: '#0F294A', fontSize: '16px', fontWeight: 'bold' }}>
-                  {hasActiveFilters ? 'No Matching PDFs Found' : 'No Content in Your Program'}
-                </h3>
-                <p style={{ margin: 0, color: '#64748B', fontSize: '11px', maxWidth: '420px', marginInline: 'auto' }}>
+              <div
+                className="empty"
+                style={{ padding: '48px 20px', textAlign: 'center' }}
+              >
+                <BookOpen
+                  size={32}
+                  style={{ margin: '0 auto 12px', color: '#64748B' }}
+                />
+                <h3
+                  style={{
+                    margin: '0 0 6px',
+                    color: '#0F294A',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                  }}
+                >
                   {hasActiveFilters
-                    ? `No PDFs match your active filters in ${assignedDepartmentLabel}.`
-                    : `Your Program (${assignedDepartmentLabel}) currently has no content available.`}
+                    ? 'No Matching Books Found'
+                    : 'Open Library Is Empty'}
+                </h3>
+                <p
+                  style={{
+                    margin: 0,
+                    color: '#64748B',
+                    fontSize: '11px',
+                    maxWidth: '420px',
+                    marginInline: 'auto',
+                  }}
+                >
+                  {hasActiveFilters
+                    ? 'Try clearing your search, category, program badge, or letter filter.'
+                    : 'No books have been published to the open library yet.'}
                 </p>
               </div>
             </section>
-          ) : viewMode === 'gallery' ? (
-            <DocumentsGallery
-              documents={mappedDocuments}
-              total={filteredDocuments.length}
-              selectedIds={selectedIds}
-              onSelectionChange={setSelectedIds}
-              onPreview={(d) => void handlePreviewDoc(d)}
-              onDownload={(d) => void handleDownload(d)}
-              onDownloadSelected={(docs) => void handleDownloadSelected(docs)}
-            />
           ) : (
-            <DocumentsTable
-              documents={mappedDocuments}
-              total={filteredDocuments.length}
-              selectedIds={selectedIds}
-              onSelectionChange={setSelectedIds}
-              onPreview={handlePreviewDoc}
-              onDownload={handleDownload}
-              onDownloadSelected={handleDownloadSelected}
-              loadingDocId={previewLoadingDocId}
-              downloadingDocId={downloadingDocId}
-              isDownloadingSelected={isDownloadingSelected}
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {shelfSections.map(({ letter, books }) => (
+                <section
+                  key={letter}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '15px',
+                      fontWeight: 'bold',
+                      color: '#0F294A',
+                      borderBottom: '1px solid #E2E8F0',
+                      paddingBottom: '4px',
+                    }}
+                  >
+                    {letter}
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns:
+                        'repeat(auto-fill, minmax(150px, 1fr))',
+                      gap: '20px',
+                      alignItems: 'start',
+                    }}
+                  >
+                    {books.map((book) => {
+                      const isBusy =
+                        previewLoadingDocId === book.id ||
+                        downloadingDocId === book.id;
+
+                      return (
+                        <article
+                          key={book.id}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setRelatedTargetDoc(book)}
+                            style={{
+                              position: 'relative',
+                              aspectRatio: '2 / 3',
+                              width: '100%',
+                              padding: 0,
+                              border: '1px solid #CBD5E1',
+                              borderRadius: '3px',
+                              background: '#FFFFFF',
+                              cursor: 'pointer',
+                              display: 'block',
+                              textAlign: 'left',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <PdfThumbnail
+                              fileUrl={thumbUrls[book.id] || null}
+                              title={book.name}
+                              department={book.category || 'Open Library'}
+                            />
+                          </button>
+
+                          <div>
+                            <div
+                              style={{
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                color: '#0F294A',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                              title={book.name}
+                            >
+                              {book.name}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '11px',
+                                color: '#64748B',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {book.author || book.category || 'Open Access'}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={isBusy}
+                              onClick={() =>
+                                void handlePreviewDoc(mapToRepositoryDocument(book))
+                              }
+                              style={{
+                                flex: 1,
+                                minHeight: '26px',
+                                fontSize: '10px',
+                                padding: '0 6px',
+                              }}
+                            >
+                              <Eye size={11} />
+                              <span>Read</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={isBusy}
+                              onClick={() =>
+                                void handleDownload(mapToRepositoryDocument(book))
+                              }
+                              style={{
+                                minHeight: '26px',
+                                fontSize: '10px',
+                                padding: '0 6px',
+                              }}
+                              title="Download PDF"
+                            >
+                              <Download size={11} />
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
           )}
         </div>
       </main>
+
+      {/* Book Details & Related Books Modal */}
+      {relatedTargetDoc && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setRelatedTargetDoc(null);
+          }}
+        >
+          <section
+            className="repo-modal"
+            style={{ width: 'min(580px, 100%)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="student-related-book-title"
+          >
+            <header>
+              <strong id="student-related-book-title">
+                <BookMarked size={15} aria-hidden="true" />
+                BOOK DETAILS &amp; RELATED BOOKS
+              </strong>
+              <button
+                type="button"
+                onClick={() => setRelatedTargetDoc(null)}
+                aria-label="Close modal"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="modal-body">
+              <small>{relatedTargetDoc.category || 'OPEN LIBRARY'}</small>
+              <h2>{relatedTargetDoc.name}</h2>
+              <p>
+                {relatedTargetDoc.author
+                  ? `By ${relatedTargetDoc.author} · `
+                  : ''}
+                {formatFileSize(relatedTargetDoc.size)} · Open Access
+              </p>
+
+              {extractNames(relatedTargetDoc.programs).length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '6px',
+                    marginTop: '10px',
+                  }}
+                >
+                  {extractNames(relatedTargetDoc.programs).map((prog) => (
+                    <span key={prog} className="category">
+                      {prog}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {extractNames(relatedTargetDoc.tags).length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '6px',
+                    marginTop: '8px',
+                  }}
+                >
+                  {extractNames(relatedTargetDoc.tags).map((tag) => (
+                    <span key={tag} className="category">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ marginTop: '16px' }}>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    marginBottom: '8px',
+                  }}
+                >
+                  <Sparkles size={14} aria-hidden="true" />
+                  <span>Related Books ({relatedMatches.length})</span>
+                </div>
+
+                {relatedMatches.length === 0 ? (
+                  <p style={{ fontSize: '11px', color: '#64748B' }}>
+                    No related books matched by program badges or topic tags yet.
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    {relatedMatches.map(
+                      ({ doc: rel, reason, isAdjacentCategoryMatch }) => (
+                        <div
+                          key={rel.id}
+                          style={{
+                            padding: '8px 10px',
+                            border: '1px solid #CBD5E1',
+                            borderRadius: '2px',
+                            background: '#F8FAFC',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 600 }}>
+                              {rel.name}{' '}
+                              <span
+                                className="category"
+                                style={{ marginLeft: '6px' }}
+                              >
+                                {rel.category || 'General'}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '10px',
+                                color: '#475569',
+                                marginTop: '2px',
+                              }}
+                            >
+                              {reason}
+                              {isAdjacentCategoryMatch
+                                ? ' · Cross-category badge link'
+                                : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => setRelatedTargetDoc(rel)}
+                          >
+                            Inspect
+                          </button>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <footer>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() =>
+                  void handleDownload(mapToRepositoryDocument(relatedTargetDoc))
+                }
+              >
+                <Download size={13} />
+                <span>Download</span>
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  const target = relatedTargetDoc;
+                  setRelatedTargetDoc(null);
+                  void handlePreviewDoc(mapToRepositoryDocument(target));
+                }}
+              >
+                <Eye size={13} />
+                <span>Open PDF</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       <DocumentPreviewModal
         document={previewDoc}
         onClose={closePreviewModal}
         onDownload={handleDownload}
-        isLoading={Boolean(previewLoadingDocId && previewDoc?.docId === previewLoadingDocId)}
-        isDownloading={Boolean(downloadingDocId && previewDoc?.docId === downloadingDocId)}
+        isLoading={Boolean(
+          previewLoadingDocId && previewDoc?.docId === previewLoadingDocId
+        )}
+        isDownloading={Boolean(
+          downloadingDocId && previewDoc?.docId === downloadingDocId
+        )}
       />
     </div>
   );

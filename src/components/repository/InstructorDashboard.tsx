@@ -5,35 +5,43 @@ import { useAuth } from '@/context/AuthContext';
 import {
   deleteDocumentRequest,
   fetchAuthorizedDocumentBlobUrl,
-  fetchCoursesRequest,
-  fetchDepartmentsRequest,
   fetchDocumentsRequest,
+  fetchMyDocumentsRequest,
+  triggerAuthenticatedPdfDownload,
   updateDocumentRequest,
   uploadDocumentRequest,
-  type CourseRecord,
-  type DepartmentRecord,
   type DocumentRecord,
 } from '@/lib/library-api';
 import type { RepositoryDocument } from '@/types/repository';
 import {
+  AlertCircle,
+  BookMarked,
+  BookOpen,
+  Check,
+  Download,
+  Edit3,
+  Eye,
   FileUp,
+  Filter,
+  FolderKanban,
+  LayoutGrid,
+  Loader2,
+  RefreshCw,
   Search,
   ShieldCheck,
-  Filter,
-  X,
-  Upload,
-  FileText,
-  AlertCircle,
-  LayoutGrid,
-  List,
-  Pencil,
+  Sparkles,
+  Table2,
   Trash2,
-  Loader2,
+  X,
 } from 'lucide-react';
 import PortalHeader from './PortalHeader';
-import DocumentsTable from './DocumentsTable';
-import DocumentsGallery from './DocumentsGallery';
 import DocumentPreviewModal from './DocumentPreviewModal';
+import PdfThumbnail from './PdfThumbnail';
+import {
+  AdminCategoriesSection,
+  type LibraryCategoryItem,
+} from './AdminCategoriesSection';
+import { UploadPdfModal, type UploadPdfMetadata } from './UploadPdfModal';
 
 type Props = {
   onSearch?: (query: string) => void;
@@ -41,32 +49,144 @@ type Props = {
   onNavigateHome?: () => void;
 };
 
-type DocumentRecordWithUrl = DocumentRecord & {
-  signedUrl?: string;
-  uploadedBy?: { id: string; fullName: string; email: string } | null;
+type InstructorTab = 'shelf' | 'manage-uploads' | 'categories';
+
+type TagLike = string | { name: string };
+type ProgramLike = string | { name: string };
+
+type InstructorBookRecord = DocumentRecord & {
+  coverUrl?: string | null;
+  uploadedById?: string | null;
 };
 
 type PreviewableRepositoryDocument = RepositoryDocument & {
   previewUrl?: string;
 };
 
-const CATEGORIES = [
-  'Lecture Notes',
-  'Lab Manual',
-  'Syllabus & Guide',
-  'Past Assessment',
-];
-
-function normalizeDeptValue(val?: string | null): string {
-  return (val || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ');
+interface RelatedBookMatch {
+  doc: InstructorBookRecord;
+  score: number;
+  sharedPrograms: string[];
+  sharedTags: string[];
+  isAdjacentCategoryMatch: boolean;
+  reason: string;
 }
 
-function getDocDepartmentId(doc: DocumentRecordWithUrl): string | null {
-  return doc.departmentId ?? doc.course?.departmentId ?? null;
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+function extractNames(items?: Array<string | { name: string }>): string[] {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => (typeof item === 'string' ? item : item?.name || ''))
+    .map((val) => val.trim())
+    .filter(Boolean);
+}
+
+function getGroupLetter(title: string): string {
+  const first = (title || '').trim().charAt(0).toUpperCase();
+  return /^[A-Z]$/.test(first) ? first : '#';
+}
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 KB';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getRelatedBooks(
+  target: InstructorBookRecord,
+  catalog: InstructorBookRecord[]
+): RelatedBookMatch[] {
+  const targetCat = (target.category || '').trim().toLowerCase();
+  const targetPrograms = extractNames(target.programs).map((p) => p.toLowerCase());
+  const targetTags = extractNames(target.tags).map((t) => t.toLowerCase());
+
+  const matches: RelatedBookMatch[] = [];
+
+  for (const candidate of catalog) {
+    if (candidate.id === target.id) continue;
+
+    const candCat = (candidate.category || '').trim().toLowerCase();
+    const candProgramNames = extractNames(candidate.programs);
+    const candTagNames = extractNames(candidate.tags);
+
+    const sharedPrograms = candProgramNames.filter((p) =>
+      targetPrograms.includes(p.toLowerCase())
+    );
+    const sharedTags = candTagNames.filter((t) =>
+      targetTags.includes(t.toLowerCase())
+    );
+    const sameCategory = Boolean(targetCat && candCat && targetCat === candCat);
+    const isAdjacentCategoryMatch =
+      sharedPrograms.length > 0 &&
+      Boolean(targetCat && candCat && targetCat !== candCat);
+
+    let score = 0;
+    if (sharedPrograms.length > 0) {
+      score += sharedPrograms.length * (isAdjacentCategoryMatch ? 6 : 4);
+    }
+    if (sharedTags.length > 0) {
+      score += sharedTags.length * 3;
+    }
+    if (sameCategory) {
+      score += 2;
+    }
+
+    if (score > 0) {
+      const reasons: string[] = [];
+      if (sharedPrograms.length > 0) {
+        reasons.push(
+          isAdjacentCategoryMatch
+            ? `Program badge (${sharedPrograms.join(', ')}) in ${candidate.category || 'adjacent category'}`
+            : `Program badge (${sharedPrograms.join(', ')})`
+        );
+      }
+      if (sharedTags.length > 0) {
+        reasons.push(`Tags: ${sharedTags.map((t) => `#${t}`).join(', ')}`);
+      }
+      if (sameCategory && sharedPrograms.length === 0) {
+        reasons.push(`Category: ${candidate.category}`);
+      }
+
+      matches.push({
+        doc: candidate,
+        score,
+        sharedPrograms,
+        sharedTags,
+        isAdjacentCategoryMatch,
+        reason: reasons.join(' · '),
+      });
+    }
+  }
+
+  return matches
+    .sort((a, b) => b.score - a.score || a.doc.name.localeCompare(b.doc.name))
+    .slice(0, 4);
+}
+
+async function resolveThumbnailSource(
+  doc: InstructorBookRecord
+): Promise<string | null> {
+  const streamUrl =
+    doc.signedUrl || `/api/documents/${encodeURIComponent(doc.id)}/file`;
+
+  if (streamUrl.startsWith('blob:')) {
+    return streamUrl;
+  }
+
+  try {
+    const fetched = await fetchAuthorizedDocumentBlobUrl(streamUrl);
+    if (fetched.ok && fetched.blobUrl) {
+      return fetched.blobUrl;
+    }
+  } catch (error) {
+    console.error(
+      `[InstructorDashboard] Thumbnail error for ${doc.name}:`,
+      error
+    );
+  }
+
+  return null;
 }
 
 export const InstructorDashboard: React.FC<Props> = ({
@@ -76,96 +196,85 @@ export const InstructorDashboard: React.FC<Props> = ({
 }) => {
   const { currentUser, logout } = useAuth();
 
-  const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
-  const [courses, setCourses] = useState<CourseRecord[]>([]);
-  const [documents, setDocuments] = useState<DocumentRecordWithUrl[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<InstructorTab>('shelf');
+  const [openCategorySignal, setOpenCategorySignal] = useState(0);
 
-  const assignedDepartmentRecord = useMemo<DepartmentRecord | null>(() => {
-    const userDeptId = (currentUser as { departmentId?: string | null } | null)
-      ?.departmentId;
-    if (userDeptId) {
-      const byId = departments.find((d) => d.id === userDeptId);
-      if (byId) return byId;
-    }
+  // Database categories
+  const [categories, setCategories] = useState<LibraryCategoryItem[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
 
-    const normalizedUserDept = normalizeDeptValue(currentUser?.department);
-    if (!normalizedUserDept) return null;
+  // Open library shelf books (picture-based view)
+  const [shelfBooks, setShelfBooks] = useState<InstructorBookRecord[]>([]);
+  const [isLoadingShelf, setIsLoadingShelf] = useState(true);
+  const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
+  const thumbnailBlobUrls = useRef<Set<string>>(new Set());
 
-    return (
-      departments.find((d) => {
-        const normName = normalizeDeptValue(d.name);
-        const normCode = normalizeDeptValue(d.code);
-        const initials = normName
-          .split(' ')
-          .filter(Boolean)
-          .map((w) => w[0])
-          .join('');
-        return (
-          normName === normalizedUserDept ||
-          normCode === normalizedUserDept ||
-          initials === normalizedUserDept ||
-          normName.includes(normalizedUserDept) ||
-          normalizedUserDept.includes(normName)
-        );
-      }) ?? null
-    );
-  }, [currentUser, departments]);
+  // Only uploads belonging to this instructor (fetched from /api/documents/mine)
+  const [myUploads, setMyUploads] = useState<InstructorBookRecord[]>([]);
+  const [isLoadingUploads, setIsLoadingUploads] = useState(true);
+  const [uploadsError, setUploadsError] = useState('');
 
-  const assignedDepartmentId = assignedDepartmentRecord?.id ?? '';
-  const assignedDepartmentLabel =
-    assignedDepartmentRecord?.name ||
-    currentUser?.department ||
-    'Assigned Department';
-  const assignedDepartmentCode = assignedDepartmentRecord?.code || 'DEPT';
-
-  const departmentDoesNotExist =
-    Boolean(currentUser?.department?.trim()) &&
-    !isLoading &&
-    departments.length > 0 &&
-    !assignedDepartmentId;
-
-  const [successMsg, setSuccessMsg] = useState('');
-  const [pageError, setPageError] = useState('');
-  const [uploadError, setUploadError] = useState('');
-  const [editError, setEditError] = useState('');
-
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState(CATEGORIES[0]);
-  const [selectedCourseId, setSelectedCourseId] = useState('');
-  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
-
-  const [editingDoc, setEditingDoc] = useState<DocumentRecordWithUrl | null>(null);
-  const [editTitle, setEditTitle] = useState('');
-  const [editCategory, setEditCategory] = useState(CATEGORIES[0]);
-  const [editCourseId, setEditCourseId] = useState('');
-
+  // Shelf filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
-  const [courseFilter, setCourseFilter] = useState<string>('ALL');
-  const [viewMode, setViewMode] = useState<'table' | 'gallery'>('table');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [programFilter, setProgramFilter] = useState('ALL');
+  const [activeLetter, setActiveLetter] = useState('ALL');
+  const [sortBy, setSortBy] = useState<'title' | 'recent'>('title');
+
+  // Manage Uploads table filters & selection
+  const [tableSearch, setTableSearch] = useState('');
+  const [tableCategoryFilter, setTableCategoryFilter] = useState('ALL');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState('');
+
+  // Upload modal
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+  // Edit modal (own uploads only)
+  const [editingDoc, setEditingDoc] = useState<InstructorBookRecord | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editAuthor, setEditAuthor] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editProgramsText, setEditProgramsText] = useState('');
+  const [editTagsText, setEditTagsText] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editError, setEditError] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+const [busyActionId, setBusyActionId] = useState<string | null>(null);
+
+  // Single delete modal (own uploads only)
+  const [deletingDoc, setDeletingDoc] = useState<InstructorBookRecord | null>(
+    null
+  );
+  const [isDeletingDoc, setIsDeletingDoc] = useState(false);
+
+  // Related & Preview modals
+  const [relatedTargetDoc, setRelatedTargetDoc] =
+    useState<InstructorBookRecord | null>(null);
   const [previewDoc, setPreviewDoc] = useState<PreviewableRepositoryDocument | null>(
     null
   );
   const [previewLoadingDocId, setPreviewLoadingDocId] = useState<string | null>(null);
   const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
 
-  const notify = useCallback((msg: string) => {
-    setSuccessMsg(msg);
-    setTimeout(() => setSuccessMsg(''), 4000);
+  const [feedback, setFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const notify = useCallback((type: 'success' | 'error', message: string) => {
+    setFeedback({ type, message });
   }, []);
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024 * 1024) {
-      return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
+  useEffect(() => {
+    return () => {
+      thumbnailBlobUrls.current.forEach((url) => URL.revokeObjectURL(url));
+      thumbnailBlobUrls.current.clear();
+    };
+  }, []);
 
   const closePreviewModal = useCallback(() => {
     setPreviewLoadingDocId(null);
@@ -177,196 +286,609 @@ export const InstructorDashboard: React.FC<Props> = ({
     });
   }, []);
 
-  const loadWorkspaceData = useCallback(
-    async (opts?: { deptId?: string; courseId?: string; showSpinner?: boolean }) => {
-      const showSpinner = opts?.showSpinner ?? !hasLoadedOnce;
-      if (showSpinner) setIsLoading(true);
-      setPageError('');
+  const loadCategories = useCallback(async () => {
+    setIsLoadingCategories(true);
+    try {
+      const res = await fetch('/api/categories', { cache: 'no-store' });
+      if (!res.ok) {
+        notify('error', 'Failed to load categories from database.');
+        return;
+      }
+      const data = await res.json();
+      const rawList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.categories)
+        ? data.categories
+        : [];
 
+      const normalized: LibraryCategoryItem[] = rawList.map(
+        (
+          item: {
+            id?: string;
+            name: string;
+            slug?: string;
+            description?: string | null;
+          },
+          idx: number
+        ) => ({
+          id: item.id || `cat-${idx}`,
+          name: item.name,
+          slug: item.slug,
+          description:
+            item.description || `Open library resources in ${item.name}.`,
+        })
+      );
+      setCategories(normalized);
+    } catch {
+      notify('error', 'Network error while loading categories from database.');
+    } finally {
+      setIsLoadingCategories(false);
+    }
+  }, [notify]);
+
+  const loadShelfBooks = useCallback(async () => {
+    setIsLoadingShelf(true);
+    try {
+      const res = await fetchDocumentsRequest();
+      if (res.ok && res.documents) {
+        setShelfBooks(res.documents as InstructorBookRecord[]);
+      } else if (res.error) {
+        notify('error', res.error);
+      }
+    } catch {
+      notify('error', 'Network error while loading open library shelf.');
+    } finally {
+      setIsLoadingShelf(false);
+    }
+  }, [notify]);
+
+  // Fetches only uploads created by the current instructor via /api/documents/mine
+  const loadMyUploads = useCallback(async () => {
+    setIsLoadingUploads(true);
+    setUploadsError('');
+    try {
+      const res = await fetchMyDocumentsRequest({
+        category: tableCategoryFilter,
+        q: tableSearch,
+      });
+
+      if (!res.ok) {
+        setUploadsError(res.error || 'Failed to load your uploaded books.');
+        return;
+      }
+
+      const docs = (res.documents || []) as InstructorBookRecord[];
+      const strictlyOwned = currentUser?.id
+        ? docs.filter((doc) => {
+            const ownerId = doc.uploadedBy?.id || doc.uploadedById;
+            return !ownerId || ownerId === currentUser.id;
+          })
+        : docs;
+
+      setMyUploads(strictlyOwned);
+    } catch {
+      setUploadsError('Network error while loading your uploaded books.');
+    } finally {
+      setIsLoadingUploads(false);
+    }
+  }, [currentUser?.id, tableCategoryFilter, tableSearch]);
+
+  useEffect(() => {
+    void loadCategories();
+    void loadShelfBooks();
+  }, [loadCategories, loadShelfBooks]);
+
+  useEffect(() => {
+    void loadMyUploads();
+  }, [loadMyUploads]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pdfDocs = shelfBooks.filter(
+      (doc) =>
+        doc.mimeType === 'application/pdf' ||
+        doc.filename.toLowerCase().endsWith('.pdf')
+    );
+
+    async function resolveThumbnails() {
+      for (const doc of pdfDocs) {
+        if (cancelled) break;
+        const resolved = await resolveThumbnailSource(doc);
+        if (cancelled) {
+          if (resolved?.startsWith('blob:')) URL.revokeObjectURL(resolved);
+          break;
+        }
+        if (resolved) {
+          if (resolved.startsWith('blob:')) {
+            thumbnailBlobUrls.current.add(resolved);
+          }
+          setThumbUrls((prev) => ({ ...prev, [doc.id]: resolved }));
+        }
+      }
+    }
+
+    void resolveThumbnails();
+    return () => {
+      cancelled = true;
+    };
+  }, [shelfBooks]);
+
+  // Category CRUD handlers
+  const handleCreateCategory = useCallback(
+    async (
+      name: string,
+      description: string
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (!name) return { ok: false, error: 'Category name is required.' };
       try {
-        const deptRes = await fetchDepartmentsRequest();
-        const loadedDepts =
-          deptRes.ok && deptRes.departments ? deptRes.departments : [];
-
-        if (deptRes.ok && deptRes.departments) {
-          setDepartments(deptRes.departments);
-        } else if (deptRes.error) {
-          setPageError(deptRes.error);
-        }
-
-        const userDeptId = (currentUser as { departmentId?: string | null } | null)
-          ?.departmentId;
-        const normalizedUserDept = normalizeDeptValue(currentUser?.department);
-
-        const matchedDept =
-          opts?.deptId
-            ? loadedDepts.find((d) => d.id === opts.deptId) ?? null
-            : userDeptId
-            ? loadedDepts.find((d) => d.id === userDeptId) ?? null
-            : normalizedUserDept
-            ? loadedDepts.find((d) => {
-                const normName = normalizeDeptValue(d.name);
-                const normCode = normalizeDeptValue(d.code);
-                const initials = normName
-                  .split(' ')
-                  .filter(Boolean)
-                  .map((w) => w[0])
-                  .join('');
-                return (
-                  normName === normalizedUserDept ||
-                  normCode === normalizedUserDept ||
-                  initials === normalizedUserDept ||
-                  normName.includes(normalizedUserDept) ||
-                  normalizedUserDept.includes(normName)
-                );
-              }) ?? null
-            : null;
-
-        if (currentUser?.department?.trim() && loadedDepts.length > 0 && !matchedDept) {
-          setCourses([]);
-          setDocuments([]);
-          setSelectedIds(new Set());
-          setPageError(
-            `Department "${currentUser.department.trim()}" does not exist in the database.`
-          );
-          return;
-        }
-
-        const effectiveDeptId = matchedDept?.id ?? opts?.deptId ?? '';
-        const targetCourseId = opts?.courseId ?? courseFilter;
-
-        const [courseRes, docRes] = await Promise.all([
-          fetchCoursesRequest(effectiveDeptId || undefined),
-          fetchDocumentsRequest({
-            ...(effectiveDeptId ? { departmentId: effectiveDeptId } : {}),
-            ...(targetCourseId !== 'ALL' ? { courseId: targetCourseId } : {}),
+        const res = await fetch('/api/categories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            description: description || `Open library resources in ${name}.`,
           }),
-        ]);
-
-        if (courseRes.ok && courseRes.courses) {
-          setCourses(courseRes.courses);
-        } else if (courseRes.error) {
-          setPageError((prev) => prev || courseRes.error || '');
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          return {
+            ok: false,
+            error: data?.error || 'Failed to save category to database.',
+          };
         }
-
-        if (docRes.ok && docRes.documents) {
-          const scopedDocs = (docRes.documents as DocumentRecordWithUrl[]).filter(
-            (doc) => {
-              if (!effectiveDeptId) return true;
-              const docDeptId = getDocDepartmentId(doc);
-              return docDeptId === effectiveDeptId;
-            }
-          );
-          setDocuments(scopedDocs);
-        } else if (docRes.error) {
-          setPageError((prev) => prev || docRes.error || '');
-        }
-      } catch (err) {
-        setPageError(
-          err instanceof Error ? err.message : 'Failed to load instructor workspace.'
-        );
-      } finally {
-        setIsLoading(false);
-        setHasLoadedOnce(true);
+        await loadCategories();
+        notify('success', `Created category "${name}".`);
+        return { ok: true };
+      } catch {
+        return { ok: false, error: 'Network error while creating category.' };
       }
     },
-    [courseFilter, currentUser, hasLoadedOnce]
+    [loadCategories, notify]
   );
 
-  useEffect(() => {
-    void loadWorkspaceData({ showSpinner: !hasLoadedOnce });
-  }, [currentUser?.id, currentUser?.department, courseFilter, loadWorkspaceData, hasLoadedOnce]);
+  const handleUpdateCategory = useCallback(
+    async (
+      id: string,
+      name: string,
+      description: string
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (!name) return { ok: false, error: 'Category name is required.' };
+      try {
+        const res = await fetch(`/api/categories/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            description: description || `Open library resources in ${name}.`,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          return { ok: false, error: data?.error || 'Failed to update category.' };
+        }
+        await loadCategories();
+        notify('success', `Updated category to "${name}".`);
+        return { ok: true };
+      } catch {
+        return { ok: false, error: 'Network error while updating category.' };
+      }
+    },
+    [loadCategories, notify]
+  );
 
-  useEffect(() => {
-    if (
-      courseFilter !== 'ALL' &&
-      courses.length > 0 &&
-      !courses.some((c) => c.id === courseFilter)
-    ) {
-      setCourseFilter('ALL');
+  const handleDeleteCategory = useCallback(
+    async (item: LibraryCategoryItem): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const res = await fetch(`/api/categories/${encodeURIComponent(item.id)}`, {
+          method: 'DELETE',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          return { ok: false, error: data?.error || 'Failed to delete category.' };
+        }
+        await loadCategories();
+        notify('success', `Deleted category "${item.name}".`);
+        return { ok: true };
+      } catch {
+        return { ok: false, error: 'Network error while deleting category.' };
+      }
+    },
+    [loadCategories, notify]
+  );
+
+  const handleBulkDeleteCategories = useCallback(
+    async (
+      items: LibraryCategoryItem[]
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (items.length === 0) return { ok: false, error: 'No categories selected.' };
+      try {
+        const bulkRes = await fetch('/api/categories/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: items.map((i) => i.id) }),
+        });
+
+        if (!bulkRes.ok && bulkRes.status === 404) {
+          for (const item of items) {
+            const singleRes = await fetch(
+              `/api/categories/${encodeURIComponent(item.id)}`,
+              { method: 'DELETE' }
+            );
+            if (!singleRes.ok) {
+              const errData = await singleRes.json().catch(() => ({}));
+              return {
+                ok: false,
+                error: errData?.error || `Failed to delete "${item.name}".`,
+              };
+            }
+          }
+        } else if (!bulkRes.ok) {
+          const errData = await bulkRes.json().catch(() => ({}));
+          return { ok: false, error: errData?.error || 'Bulk delete failed.' };
+        }
+
+        await loadCategories();
+        notify('success', `Deleted ${items.length} selected category(ies).`);
+        return { ok: true };
+      } catch {
+        return {
+          ok: false,
+          error: 'Network error while deleting selected categories.',
+        };
+      }
+    },
+    [loadCategories, notify]
+  );
+
+  const dbCategoryNames = useMemo(
+    () => categories.map((c) => c.name),
+    [categories]
+  );
+
+  const programBadgeOptions = useMemo(() => {
+    const merged = new Map<string, string>();
+    for (const doc of shelfBooks) {
+      for (const prog of extractNames(doc.programs)) {
+        if (!merged.has(prog.toLowerCase())) {
+          merged.set(prog.toLowerCase(), prog);
+        }
+      }
     }
-  }, [courses, courseFilter]);
+    return Array.from(merged.values()).sort((a, b) => a.localeCompare(b));
+  }, [shelfBooks]);
 
-  const filteredDocuments = useMemo(() => {
-    return documents.filter((doc) => {
-      if (assignedDepartmentId) {
-        const docDeptId = getDocDepartmentId(doc);
-        if (docDeptId !== assignedDepartmentId) return false;
-      }
-
-      if (courseFilter !== 'ALL' && doc.courseId !== courseFilter) {
-        return false;
-      }
-
+  // Open Library Shelf filtering & grouping
+  const filteredShelfBooks = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const list = shelfBooks.filter((doc) => {
       const isPdf =
         doc.mimeType === 'application/pdf' ||
         doc.filename.toLowerCase().endsWith('.pdf');
       if (!isPdf) return false;
 
-      const docCategory = doc.category || 'Course PDF';
-      if (categoryFilter !== 'ALL' && docCategory !== categoryFilter) {
+      const docCat = (doc.category || 'Uncategorized').trim();
+      if (
+        categoryFilter !== 'ALL' &&
+        docCat.toLowerCase() !== categoryFilter.toLowerCase()
+      ) {
         return false;
       }
 
-      const q = searchQuery.trim().toLowerCase();
-      if (q) {
-        const matchesName = doc.name.toLowerCase().includes(q);
-        const matchesFile = doc.filename.toLowerCase().includes(q);
-        const matchesCourse =
-          doc.course?.code?.toLowerCase().includes(q) ||
-          doc.course?.title?.toLowerCase().includes(q);
-        if (!matchesName && !matchesFile && !matchesCourse) return false;
+      const docPrograms = extractNames(doc.programs);
+      if (
+        programFilter !== 'ALL' &&
+        !docPrograms.some((p) => p.toLowerCase() === programFilter.toLowerCase())
+      ) {
+        return false;
       }
 
-      return true;
-    });
-  }, [documents, assignedDepartmentId, courseFilter, categoryFilter, searchQuery]);
+      if (activeLetter !== 'ALL' && getGroupLetter(doc.name) !== activeLetter) {
+        return false;
+      }
 
-  const mappedDocuments: RepositoryDocument[] = useMemo(() => {
-    return filteredDocuments.map((doc) => ({
-      docId: doc.id,
-      courseCode: doc.course?.code || assignedDepartmentCode,
-      courseTitle: doc.course?.title || assignedDepartmentLabel,
-      department: doc.department?.name || assignedDepartmentLabel,
-      title: doc.name,
-      summary: `${doc.category || 'Course PDF'} · ${doc.filename}`,
-      category: doc.category || 'Course PDF',
-      author: doc.uploadedBy?.fullName || currentUser?.name || 'Course Instructor',
-      size: formatFileSize(doc.size),
-      pages: 1,
-      uploadDate: doc.createdAt
-        ? doc.createdAt.split('T')[0]
-        : new Date().toISOString().split('T')[0],
-      topics: doc.course
-        ? `${doc.course.code} - ${doc.course.title}`
-        : assignedDepartmentLabel,
-    }));
+      if (!q) return true;
+      const docTags = extractNames(doc.tags);
+      return (
+        doc.name.toLowerCase().includes(q) ||
+        (doc.author || '').toLowerCase().includes(q) ||
+        docCat.toLowerCase().includes(q) ||
+        doc.filename.toLowerCase().includes(q) ||
+        docPrograms.some((p) => p.toLowerCase().includes(q)) ||
+        docTags.some((t) => t.toLowerCase().includes(q))
+      );
+    });
+
+    if (sortBy === 'recent') {
+      return [...list].sort(
+        (a, b) =>
+          new Date(b.createdAt || 0).getTime() -
+          new Date(a.createdAt || 0).getTime()
+      );
+    }
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
   }, [
-    filteredDocuments,
-    assignedDepartmentCode,
-    assignedDepartmentLabel,
-    currentUser?.name,
+    shelfBooks,
+    categoryFilter,
+    programFilter,
+    activeLetter,
+    searchQuery,
+    sortBy,
   ]);
 
-  const resolveStreamUrl = (doc: DocumentRecordWithUrl, download = false): string => {
-    const base = doc.signedUrl || `/api/documents/${encodeURIComponent(doc.id)}/file`;
+  const shelfSections = useMemo(() => {
+    const bucketMap = new Map<string, InstructorBookRecord[]>();
+    for (const doc of filteredShelfBooks) {
+      const key = getGroupLetter(doc.name);
+      const list = bucketMap.get(key) || [];
+      list.push(doc);
+      bucketMap.set(key, list);
+    }
+
+    const sortedLetters = Array.from(bucketMap.keys()).sort((a, b) => {
+      if (a === '#') return 1;
+      if (b === '#') return -1;
+      return a.localeCompare(b);
+    });
+
+    return sortedLetters.map((letter) => ({
+      letter,
+      books: bucketMap.get(letter) || [],
+    }));
+  }, [filteredShelfBooks]);
+
+  // Instructor's own uploaded books selection
+  const visibleUploadIds = useMemo(
+    () => myUploads.map((d) => d.id),
+    [myUploads]
+  );
+
+  const selectedUploads = useMemo(
+    () => myUploads.filter((d) => selectedIds.has(d.id)),
+    [myUploads, selectedIds]
+  );
+
+  const allUploadsSelected =
+    visibleUploadIds.length > 0 &&
+    visibleUploadIds.every((id) => selectedIds.has(id));
+  const someUploadsSelected = visibleUploadIds.some((id) => selectedIds.has(id));
+
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllUploads = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allUploadsSelected) {
+        visibleUploadIds.forEach((id) => next.delete(id));
+      } else {
+        visibleUploadIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  // Upload new book linked to database category + tags + program badges
+  const handleUploadSubmit = async (
+    payload: UploadPdfMetadata
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await uploadDocumentRequest({
+        file: payload.file,
+        name: payload.name,
+        author: payload.author,
+        category: payload.category,
+        programs: payload.programs,
+        tags: payload.tags,
+        description: payload.description,
+      });
+
+      if (!res.ok || !res.document) {
+        return { ok: false, error: res.error || 'Failed to upload book.' };
+      }
+
+      notify(
+        'success',
+        `Uploaded "${res.document.name}" linked to "${payload.category}".`
+      );
+      await Promise.all([loadMyUploads(), loadShelfBooks()]);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Network error while uploading book.' };
+    }
+  };
+
+  const openEditModal = (doc: InstructorBookRecord) => {
+    setEditingDoc(doc);
+    setEditName(doc.name);
+    setEditAuthor(doc.author || '');
+    setEditCategory(doc.category || dbCategoryNames[0] || '');
+    setEditProgramsText(extractNames(doc.programs).join(', '));
+    setEditTagsText(extractNames(doc.tags).join(', '));
+    setEditDescription(doc.description || '');
+    setEditError('');
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDoc) return;
+    setEditError('');
+
+    const cleanedTitle = editName.trim();
+    if (!cleanedTitle) {
+      setEditError('Book title is required.');
+      return;
+    }
+
+    const parsedTags = Array.from(
+      new Set(
+        editTagsText
+          .split(',')
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean)
+      )
+    );
+
+    const parsedPrograms = Array.from(
+      new Map(
+        editProgramsText
+          .split(',')
+          .map((p) => p.trim())
+          .filter(Boolean)
+          .map((p) => [p.toLowerCase(), p])
+      ).values()
+    );
+
+    setIsSavingEdit(true);
+    try {
+      const res = await updateDocumentRequest(editingDoc.id, {
+        name: cleanedTitle,
+        author: editAuthor.trim() || undefined,
+        category: editCategory,
+        programs: parsedPrograms,
+        tags: parsedTags,
+        description: editDescription.trim() || undefined,
+      });
+
+      if (!res.ok || !res.document) {
+        setEditError(res.error || 'Failed to update upload.');
+        return;
+      }
+
+      setEditingDoc(null);
+      notify('success', `Updated "${res.document.name}".`);
+      await Promise.all([loadMyUploads(), loadShelfBooks()]);
+    } catch {
+      setEditError('Network error while updating upload.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingDoc) return;
+    setIsDeletingDoc(true);
+    try {
+      const res = await deleteDocumentRequest(deletingDoc.id);
+      if (!res.ok) {
+        notify('error', res.error || 'Failed to delete upload.');
+        setDeletingDoc(null);
+        return;
+      }
+      const removedId = deletingDoc.id;
+      const removedName = deletingDoc.name;
+      setMyUploads((prev) => prev.filter((d) => d.id !== removedId));
+      setShelfBooks((prev) => prev.filter((d) => d.id !== removedId));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(removedId);
+        return next;
+      });
+      setDeletingDoc(null);
+      notify('success', `Deleted "${removedName}".`);
+    } catch {
+      notify('error', 'Network error while deleting upload.');
+      setDeletingDoc(null);
+    } finally {
+      setIsDeletingDoc(false);
+    }
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedUploads.length === 0) return;
+    setBulkDeleteError('');
+    setIsBulkDeleting(true);
+
+    let deletedCount = 0;
+    const deletedIds = new Set<string>();
+    const failedNames: string[] = [];
+
+    try {
+      for (const doc of selectedUploads) {
+        const res = await deleteDocumentRequest(doc.id);
+        if (res.ok) {
+          deletedCount += 1;
+          deletedIds.add(doc.id);
+        } else {
+          failedNames.push(doc.name);
+        }
+      }
+
+      if (deletedIds.size > 0) {
+        setMyUploads((prev) => prev.filter((d) => !deletedIds.has(d.id)));
+        setShelfBooks((prev) => prev.filter((d) => !deletedIds.has(d.id)));
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          deletedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+
+      if (failedNames.length > 0) {
+        setBulkDeleteError(
+          `Deleted ${deletedCount} item(s), failed on: ${failedNames.join(', ')}.`
+        );
+        return;
+      }
+
+      setIsBulkDeleteModalOpen(false);
+      notify('success', `Deleted ${deletedCount} selected upload(s).`);
+    } catch {
+      setBulkDeleteError('Network error during bulk delete.');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  const mapToRepositoryDocument = useCallback(
+    (doc: InstructorBookRecord): RepositoryDocument => {
+      const programs = extractNames(doc.programs);
+      const tags = extractNames(doc.tags);
+      return {
+        docId: doc.id,
+        courseCode: doc.category || 'OPEN',
+        courseTitle: programs[0] || doc.category || 'Open Library',
+        department: programs.join(', ') || 'Open Access',
+        title: doc.name,
+        summary: doc.description || `${doc.category || 'General'} · ${doc.filename}`,
+        category: doc.category || 'General',
+        author: doc.author || doc.uploadedBy?.fullName || 'Open Library',
+        size: formatBytes(doc.size),
+        pages: 1,
+        uploadDate: doc.createdAt
+          ? doc.createdAt.split('T')[0]
+          : new Date().toISOString().split('T')[0],
+        topics: tags.map((t) => `#${t}`).join(' '),
+      };
+    },
+    []
+  );
+
+  const resolveStreamUrl = (
+    doc: InstructorBookRecord,
+    download = false
+  ): string => {
+    const base =
+      doc.signedUrl || `/api/documents/${encodeURIComponent(doc.id)}/file`;
     if (!download) return base;
     const sep = base.includes('?') ? '&' : '?';
     return `${base}${sep}download=1`;
   };
 
-  // Load real PDF via authorized fetch so browser/iframe never prints raw JSON "Unauthorized."
-  const handlePreviewDoc = useCallback(
+  const handlePreviewRepoDoc = useCallback(
     async (doc: RepositoryDocument) => {
-      setPageError('');
       setPreviewLoadingDocId(doc.docId);
       setPreviewDoc({ ...doc, previewUrl: undefined });
-
       try {
-        const match = documents.find((item) => item.id === doc.docId);
-        if (!match) {
-          return;
-        }
+        const match =
+          shelfBooks.find((item) => item.id === doc.docId) ||
+          myUploads.find((item) => item.id === doc.docId);
+        if (!match) return;
 
         const streamUrl = resolveStreamUrl(match, false);
         if (streamUrl.startsWith('blob:')) {
@@ -376,529 +898,1129 @@ export const InstructorDashboard: React.FC<Props> = ({
 
         const fetched = await fetchAuthorizedDocumentBlobUrl(streamUrl);
         if (!fetched.ok || !fetched.blobUrl) {
-          setPageError(fetched.error || 'Unable to load PDF preview.');
+          notify('error', fetched.error || 'Unable to load PDF preview.');
           return;
         }
-
-        setPreviewDoc({
-          ...doc,
-          previewUrl: fetched.blobUrl,
-        });
+        setPreviewDoc({ ...doc, previewUrl: fetched.blobUrl });
       } finally {
         setPreviewLoadingDocId(null);
       }
     },
-    [documents]
+    [shelfBooks, myUploads, notify]
   );
 
-  // Download real PDF using authorized fetch + Blob download link
-  const handleDownloadDoc = useCallback(
+  const handleDownloadRepoDoc = useCallback(
     async (doc: RepositoryDocument) => {
-      setPageError('');
       setDownloadingDocId(doc.docId);
-
       try {
-        const match = documents.find((item) => item.id === doc.docId);
+        const match =
+          shelfBooks.find((item) => item.id === doc.docId) ||
+          myUploads.find((item) => item.id === doc.docId);
         if (!match) {
-          setPageError('Document record not found.');
+          notify('error', 'Book record not found.');
           return;
         }
-
-        const downloadUrl = resolveStreamUrl(match, true);
-        const fetched = await fetchAuthorizedDocumentBlobUrl(downloadUrl);
-        if (!fetched.ok || !fetched.blobUrl) {
-          setPageError(fetched.error || 'Failed to download PDF.');
+        const res = await triggerAuthenticatedPdfDownload(
+          resolveStreamUrl(match, true),
+          match.filename || `${doc.title}.pdf`
+        );
+        if (!res.ok) {
+          notify('error', res.error || 'Failed to download PDF.');
           return;
         }
-
-        const link = document.createElement('a');
-        link.href = fetched.blobUrl;
-        link.download = match.filename || `${doc.title}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(fetched.blobUrl!), 2000);
+        notify('success', `Downloaded "${doc.title}".`);
       } finally {
         setDownloadingDocId((prev) => (prev === doc.docId ? null : prev));
       }
     },
-    [documents]
+    [shelfBooks, myUploads, notify]
   );
 
-  const openUploadModal = () => {
-    if (departmentDoesNotExist) {
-      setPageError(
-        `Cannot upload PDF because department "${currentUser?.department}" does not exist in the database.`
-      );
+ const handleTablePreview = async (doc: InstructorBookRecord) => {
+  if (!doc.signedUrl) {
+    notify('error', 'Preview URL unavailable. Refresh first.');
+    return;
+  }
+  setBusyActionId(doc.id);
+  try {
+    const res = await fetchAuthorizedDocumentBlobUrl(doc.signedUrl);
+    if (!res.ok || !res.blobUrl) {
+      notify('error', res.error || 'Could not load PDF preview.');
       return;
     }
-    setUploadError('');
-    setSelectedPdfFile(null);
-    setTitle('');
-    setCategory(CATEGORIES[0]);
-    setSelectedCourseId(courseFilter !== 'ALL' ? courseFilter : courses[0]?.id ?? '');
-    setIsUploadModalOpen(true);
-  };
-
-  const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setUploadError('');
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const isPdf =
-      file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      setUploadError('Only PDF (.pdf) files are allowed.');
-      setSelectedPdfFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
+    if (previewDoc?.previewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(previewDoc.previewUrl);
     }
+    setPreviewDoc({
+      ...mapToRepositoryDocument(doc),
+      previewUrl: res.blobUrl,
+    });
+  } finally {
+    setBusyActionId(null);
+  }
+};
 
-    setSelectedPdfFile(file);
-    if (!title.trim()) {
-      setTitle(file.name.replace(/\.pdf$/i, '').replace(/[-_]+/g, ' '));
-    }
-  };
-
-  const handlePublishPdf = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setUploadError('');
-
-    if (!selectedPdfFile) {
-      setUploadError('Please select a PDF file to upload.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const res = await uploadDocumentRequest({
-        file: selectedPdfFile,
-        name: title.trim() || selectedPdfFile.name,
-        category,
-        departmentId: assignedDepartmentId || undefined,
-        courseId: selectedCourseId || undefined,
-      });
-
-      if (!res.ok || !res.document) {
-        setUploadError(res.error || 'Failed to upload PDF document.');
-        return;
-      }
-
-      setIsUploadModalOpen(false);
-      notify(`Uploaded PDF "${res.document.name}".`);
-      await loadWorkspaceData({
-        deptId: assignedDepartmentId || undefined,
-        showSpinner: false,
-      });
-    } catch (err) {
-      setUploadError(
-        err instanceof Error ? err.message : 'Unexpected error while uploading PDF.'
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const openEditModal = (doc: DocumentRecordWithUrl) => {
-    setEditError('');
-    setEditingDoc(doc);
-    setEditTitle(doc.name);
-    setEditCategory(doc.category || CATEGORIES[0]);
-    setEditCourseId(doc.courseId || '');
-  };
-
-  const handleEditSingleSelected = () => {
-    if (selectedIds.size !== 1) return;
-    const targetId = Array.from(selectedIds)[0];
-    const match = documents.find((d) => d.id === targetId);
-    if (match) openEditModal(match);
-  };
-
-  const handleUpdatePdf = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingDoc) return;
-    setEditError('');
-
-    if (!editTitle.trim()) {
-      setEditError('Document title is required.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const res = await updateDocumentRequest(editingDoc.id, {
-        name: editTitle.trim(),
-        category: editCategory,
-        courseId: editCourseId || null,
-        departmentId: assignedDepartmentId || editingDoc.departmentId,
-      });
-
-      if (!res.ok) {
-        setEditError(res.error || 'Failed to update PDF metadata.');
-        return;
-      }
-
-      setEditingDoc(null);
-      notify(`Updated "${editTitle.trim()}".`);
-      await loadWorkspaceData({
-        deptId: assignedDepartmentId || undefined,
-        showSpinner: false,
-      });
-    } catch (err) {
-      setEditError(
-        err instanceof Error ? err.message : 'Unexpected error while updating PDF.'
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleDeleteSelected = async () => {
-    if (selectedIds.size === 0) return;
-    setPageError('');
-
-    const count = selectedIds.size;
-    const confirmed = window.confirm(
-      `Delete ${count} selected PDF${count === 1 ? '' : 's'}? This cannot be undone.`
+const handleTableDownload = async (doc: InstructorBookRecord) => {
+  if (!doc.signedUrl) {
+    notify('error', 'Download URL unavailable. Refresh first.');
+    return;
+  }
+  setBusyActionId(doc.id);
+  try {
+    const res = await triggerAuthenticatedPdfDownload(
+      `${doc.signedUrl}${doc.signedUrl.includes('?') ? '&' : '?'}download=1`,
+      doc.filename || `${doc.name}.pdf`
     );
-    if (!confirmed) return;
-
-    setIsSubmitting(true);
-    try {
-      const ids = Array.from(selectedIds);
-      const results = await Promise.all(ids.map((id) => deleteDocumentRequest(id)));
-      const failed = results.filter((r) => !r.ok);
-
-      if (failed.length > 0) {
-        setPageError(
-          failed[0].error || `Failed to delete ${failed.length} selected PDF(s).`
-        );
-      } else {
-        notify(`Deleted ${count} PDF${count === 1 ? '' : 's'}.`);
-      }
-
-      setSelectedIds(new Set());
-      if (previewDoc && selectedIds.has(previewDoc.docId)) {
-        closePreviewModal();
-      }
-      await loadWorkspaceData({
-        deptId: assignedDepartmentId || undefined,
-        showSpinner: false,
-      });
-    } catch (err) {
-      setPageError(
-        err instanceof Error ? err.message : 'Unexpected error while deleting PDFs.'
-      );
-    } finally {
-      setIsSubmitting(false);
+    if (!res.ok) {
+      notify('error', res.error || 'Could not download PDF.');
+      return;
     }
-  };
+    notify('success', `Downloaded "${doc.name}".`);
+  } finally {
+    setBusyActionId(null);
+  }
+};
+
+  const relatedMatches = useMemo(() => {
+    if (!relatedTargetDoc) return [];
+    return getRelatedBooks(relatedTargetDoc, shelfBooks);
+  }, [relatedTargetDoc, shelfBooks]);
+
+  const hasShelfFilters =
+    categoryFilter !== 'ALL' ||
+    programFilter !== 'ALL' ||
+    activeLetter !== 'ALL' ||
+    searchQuery.trim().length > 0;
 
   return (
     <div className="repo-page">
       <PortalHeader
         appName="Digital Resource Library"
-        workspaceName={`Instructor Workspace · ${assignedDepartmentCode}`}
+        workspaceName="Instructor Library · Shelf & Manage Uploads"
         version="v1.0"
         systemStatus="Online"
         onSearch={(q) => {
-          setSearchQuery(q);
+          if (activeTab === 'manage-uploads') {
+            setTableSearch(q);
+          } else {
+            setSearchQuery(q);
+          }
           onSearch?.(q);
         }}
         onLogout={onLogout || logout}
-        onNewItem={openUploadModal}
+        onNewItem={() => {
+          if (activeTab === 'categories') {
+            setOpenCategorySignal((n) => n + 1);
+          } else {
+            setIsUploadModalOpen(true);
+          }
+        }}
         onSettings={onNavigateHome}
       />
 
-      <main className="repo-main" style={{ marginTop: '24px' }}>
-        <div className="repo-content">
+      <main className="repo-main" style={{ marginTop: '20px' }}>
+        <div
+          className="repo-content"
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+        >
           <div className="repo-heading">
             <div>
+              <small>INSTRUCTOR WORKSPACE</small>
+              <h2>Open Library &amp; Manage Uploads</h2>
               <p>
-                Manage PDF materials for{' '}
-                <strong>{assignedDepartmentLabel}</strong> and its courses.
+                Browse the open library shelf in picture form or switch to Manage Uploads to manage only content you uploaded.
               </p>
             </div>
             <div className="repo-heading-right">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {selectedIds.size === 1 && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={handleEditSingleSelected}
-                    disabled={isSubmitting}
-                    style={{ height: '32px', padding: '0 12px', fontSize: '11px' }}
-                  >
-                    <Pencil size={13} aria-hidden="true" />
-                    <span>Edit Selected</span>
-                  </button>
-                )}
-                {selectedIds.size > 0 && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => void handleDeleteSelected()}
-                    disabled={isSubmitting}
-                    style={{
-                      height: '32px',
-                      padding: '0 12px',
-                      fontSize: '11px',
-                      color: '#B91C1C',
-                      borderColor: '#FECACA',
-                      background: '#FEF2F2',
-                    }}
-                  >
-                    {isSubmitting ? (
-                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                    ) : (
-                      <Trash2 size={14} aria-hidden="true" />
-                    )}
-                    <span>
-                      {isSubmitting
-                        ? `Deleting (${selectedIds.size})...`
-                        : `Delete Selected (${selectedIds.size})`}
-                    </span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={openUploadModal}
-                  disabled={departmentDoesNotExist || isSubmitting}
-                  style={{ height: '32px', padding: '0 14px', fontSize: '11px' }}
-                >
-                  <FileUp size={14} aria-hidden="true" />
-                  <span>Upload PDF</span>
-                </button>
+              <div className="repo-count">
+                <strong>{shelfBooks.length}</strong>
+                <span>OPEN SHELF</span>
               </div>
               <div className="repo-count">
-                <strong>{filteredDocuments.length}</strong>
-                <span>PDFs</span>
+                <strong>{myUploads.length}</strong>
+                <span>MY UPLOADS</span>
               </div>
             </div>
           </div>
 
-          {pageError && (
-            <div
-              role="alert"
-              className="px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] text-[#B91C1C] text-[11px] flex items-center gap-2"
+          {/* Section Switcher */}
+          <div
+            role="tablist"
+            aria-label="Instructor workspace sections"
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '8px',
+              padding: '8px',
+              background: '#F8FAFC',
+              border: '1px solid #CBD5E1',
+              borderRadius: '2px',
+            }}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'shelf'}
+              className={activeTab === 'shelf' ? 'primary' : 'secondary'}
+              onClick={() => setActiveTab('shelf')}
             >
-              <AlertCircle size={14} className="shrink-0" />
-              <span>{pageError}</span>
+              <LayoutGrid size={14} aria-hidden="true" />
+              <span>Open Library Shelf ({shelfBooks.length})</span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'manage-uploads'}
+              className={activeTab === 'manage-uploads' ? 'primary' : 'secondary'}
+              onClick={() => setActiveTab('manage-uploads')}
+            >
+              <Table2 size={14} aria-hidden="true" />
+              <span>Manage Uploads ({myUploads.length})</span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'categories'}
+              className={activeTab === 'categories' ? 'primary' : 'secondary'}
+              onClick={() => setActiveTab('categories')}
+            >
+              <FolderKanban size={14} aria-hidden="true" />
+              <span>Categories ({categories.length})</span>
+            </button>
+          </div>
+
+          {feedback && (
+            <div
+              role={feedback.type === 'error' ? 'alert' : 'status'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '10px',
+                padding: '10px 12px',
+                fontSize: '11px',
+                borderRadius: '2px',
+                border:
+                  feedback.type === 'error'
+                    ? '1px solid #FCA5A5'
+                    : '1px solid #B7D8C4',
+                background: feedback.type === 'error' ? '#FEF2F2' : '#F0F8F3',
+                color: feedback.type === 'error' ? '#991B1B' : '#1E4620',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {feedback.type === 'error' ? (
+                  <AlertCircle size={15} aria-hidden="true" />
+                ) : (
+                  <ShieldCheck size={15} aria-hidden="true" />
+                )}
+                <span>{feedback.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFeedback(null)}
+                aria-label="Dismiss notification"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'inherit',
+                }}
+              >
+                <X size={14} />
+              </button>
             </div>
           )}
 
-          {successMsg && (
-            <div
-              role="status"
-              className="px-3 py-2 bg-[#EDF4FC] border border-[#D0DFF0] text-[#003060] text-[11px] flex items-center gap-2"
-            >
-              <ShieldCheck size={14} className="text-[#1E5F9A] shrink-0" />
-              <span>{successMsg}</span>
-            </div>
-          )}
-
-          <section className="repo-panel">
-            <div className="repo-panel-head">
-              <strong>
-                <Filter size={15} aria-hidden="true" /> DEPARTMENT &amp; COURSE FILTERS
-              </strong>
-              <span>{assignedDepartmentLabel.toUpperCase()}</span>
-            </div>
-
-            <div className="repo-filters">
-              <label>
-                <span>Course</span>
-                <select
-                  value={courseFilter}
-                  disabled={departmentDoesNotExist}
-                  onChange={(e) => setCourseFilter(e.target.value)}
-                >
-                  <option value="ALL">All Department Courses</option>
-                  {courses.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} · {c.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                <span>Category</span>
-                <select
-                  value={categoryFilter}
-                  disabled={departmentDoesNotExist}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  <option value="ALL">All Categories</option>
-                  {CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="repo-search">
-                <span>Search PDFs</span>
-                <div>
-                  <Search size={15} aria-hidden="true" />
-                  <input
-                    value={searchQuery}
-                    disabled={departmentDoesNotExist}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Title, filename, or course code..."
-                  />
-                </div>
-              </label>
-
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-                <button
-                  type="button"
-                  className="repo-reset"
-                  onClick={() => {
-                    setCategoryFilter('ALL');
-                    setCourseFilter('ALL');
-                    setSearchQuery('');
-                  }}
-                >
-                  Reset
-                </button>
+          {/* 1. Open Library Shelf (Picture-based view) */}
+          {activeTab === 'shelf' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <section className="repo-panel">
                 <div
-                  role="group"
-                  aria-label="Layout view"
                   style={{
-                    display: 'inline-flex',
-                    border: '1px solid #AAB7C6',
-                    borderRadius: '2px',
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    flexWrap: 'wrap',
                   }}
                 >
-                  <button
-                    type="button"
-                    className={viewMode === 'table' ? 'primary' : 'secondary'}
-                    onClick={() => setViewMode('table')}
-                    style={{ border: 'none', minHeight: '32px', padding: '0 8px' }}
-                    title="Table View"
-                  >
-                    <List size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className={viewMode === 'gallery' ? 'primary' : 'secondary'}
-                    onClick={() => setViewMode('gallery')}
-                    style={{ border: 'none', minHeight: '32px', padding: '0 8px' }}
-                    title="Gallery View"
-                  >
-                    <LayoutGrid size={14} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <BookOpen size={18} aria-hidden="true" />
+                    <div>
+                      <strong style={{ fontSize: '15px' }}>Open Library Books</strong>
+                      <span
+                        style={{
+                          marginLeft: '8px',
+                          fontSize: '11px',
+                          padding: '2px 7px',
+                          background: '#F1F5F9',
+                          borderRadius: '2px',
+                          color: '#334155',
+                        }}
+                      >
+                        {filteredShelfBooks.length}
+                      </span>
+                    </div>
+                  </div>
 
-          {departmentDoesNotExist ? (
-            <section className="repo-panel">
-              <div className="repo-panel-head">
-                <strong>DEPARTMENT STATUS</strong>
-                <span>DOES NOT EXIST</span>
-              </div>
-              <div style={{ padding: '24px', fontSize: '12px', color: '#B91C1C' }}>
-                Department &ldquo;{currentUser?.department}&rdquo; does not exist in the database.
-              </div>
-            </section>
-          ) : isLoading ? (
-            <section className="repo-panel">
-              <div className="repo-panel-head">
-                <strong>DEPARTMENT &amp; COURSE PDFS</strong>
-                <span>LOADING</span>
-              </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => void loadShelfBooks()}
+                      disabled={isLoadingShelf}
+                      style={{ minHeight: '32px', fontSize: '11px', padding: '0 8px' }}
+                    >
+                      <RefreshCw size={13} aria-hidden="true" />
+                      <span>Refresh</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => setIsUploadModalOpen(true)}
+                      disabled={isLoadingCategories || dbCategoryNames.length === 0}
+                      style={{ minHeight: '32px', fontSize: '11px', padding: '0 10px' }}
+                    >
+                      <FileUp size={13} aria-hidden="true" />
+                      <span>Post Book</span>
+                    </button>
+
+                    <select
+                      aria-label="Sort shelf books"
+                      value={sortBy}
+                      onChange={(e) =>
+                        setSortBy(e.target.value as 'title' | 'recent')
+                      }
+                      style={{
+                        minHeight: '32px',
+                        fontSize: '11px',
+                        padding: '0 8px',
+                        border: '1px solid #CBD5E1',
+                        borderRadius: '2px',
+                        background: '#FFFFFF',
+                      }}
+                    >
+                      <option value="title">Title (A–Z)</option>
+                      <option value="recent">Recently Added</option>
+                    </select>
+
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        border: '1px solid #CBD5E1',
+                        borderRadius: '2px',
+                        padding: '0 8px',
+                        minHeight: '32px',
+                        background: '#FFFFFF',
+                      }}
+                    >
+                      <Filter size={13} aria-hidden="true" />
+                      <select
+                        aria-label="Filter shelf by category"
+                        value={categoryFilter}
+                        onChange={(e) => setCategoryFilter(e.target.value)}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          fontSize: '11px',
+                        }}
+                      >
+                        <option value="ALL">All Categories</option>
+                        {dbCategoryNames.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <select
+                      aria-label="Filter shelf by program badge"
+                      value={programFilter}
+                      onChange={(e) => setProgramFilter(e.target.value)}
+                      style={{
+                        minHeight: '32px',
+                        fontSize: '11px',
+                        padding: '0 8px',
+                        border: '1px solid #CBD5E1',
+                        borderRadius: '2px',
+                        background: '#FFFFFF',
+                      }}
+                    >
+                      <option value="ALL">All Program Badges</option>
+                      {programBadgeOptions.map((prog) => (
+                        <option key={prog} value={prog}>
+                          {prog}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    padding: '0 16px 14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      border: '1px solid #CBD5E1',
+                      borderRadius: '2px',
+                      padding: '6px 10px',
+                      background: '#FFFFFF',
+                    }}
+                  >
+                    <Search size={14} aria-hidden="true" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search title, author, category, program badge, or tag..."
+                      style={{
+                        width: '100%',
+                        border: 'none',
+                        outline: 'none',
+                        fontSize: '12px',
+                        background: 'transparent',
+                      }}
+                    />
+                    {hasShelfFilters && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        style={{
+                          minHeight: '24px',
+                          fontSize: '10px',
+                          padding: '0 8px',
+                        }}
+                        onClick={() => {
+                          setCategoryFilter('ALL');
+                          setProgramFilter('ALL');
+                          setActiveLetter('ALL');
+                          setSearchQuery('');
+                        }}
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+
+                  <div
+                    role="navigation"
+                    aria-label="Alphabetical shelf index"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '4px',
+                      flexWrap: 'wrap',
+                      fontSize: '11px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      {ALPHABET.map((letter) => {
+                        const selected = activeLetter === letter;
+                        return (
+                          <button
+                            key={letter}
+                            type="button"
+                            onClick={() =>
+                              setActiveLetter((prev) =>
+                                prev === letter ? 'ALL' : letter
+                              )
+                            }
+                            style={{
+                              padding: '2px 5px',
+                              border: 'none',
+                              borderRadius: '2px',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              fontWeight: selected ? 'bold' : 'normal',
+                              background: selected ? '#0F294A' : 'transparent',
+                              color: selected ? '#FFFFFF' : '#475569',
+                            }}
+                          >
+                            {letter}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setActiveLetter((prev) => (prev === '#' ? 'ALL' : '#'))
+                        }
+                        style={{
+                          padding: '2px 6px',
+                          border: 'none',
+                          borderRadius: '2px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          fontWeight: activeLetter === '#' ? 'bold' : 'normal',
+                          background:
+                            activeLetter === '#' ? '#0F294A' : 'transparent',
+                          color: activeLetter === '#' ? '#FFFFFF' : '#475569',
+                        }}
+                      >
+                        #
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveLetter('ALL')}
+                      style={{
+                        padding: '2px 8px',
+                        border: 'none',
+                        borderRadius: '2px',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: activeLetter === 'ALL' ? 'bold' : 'normal',
+                        background:
+                          activeLetter === 'ALL' ? '#E2E8F0' : 'transparent',
+                        color: '#0F294A',
+                      }}
+                    >
+                      ALL
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              {isLoadingShelf ? (
+                <section className="repo-panel">
+                  <div
+                    style={{
+                      padding: '32px',
+                      textAlign: 'center',
+                      fontSize: '12px',
+                      color: '#475569',
+                    }}
+                  >
+                    Loading open library shelf...
+                  </div>
+                </section>
+              ) : shelfSections.length === 0 ? (
+                <section className="repo-panel">
+                  <div
+                    className="empty"
+                    style={{ padding: '48px 20px', textAlign: 'center' }}
+                  >
+                    <BookOpen
+                      size={32}
+                      style={{ margin: '0 auto 12px', color: '#64748B' }}
+                    />
+                    <h3
+                      style={{
+                        margin: '0 0 6px',
+                        color: '#0F294A',
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      {hasShelfFilters
+                        ? 'No Matching Books Found'
+                        : 'Open Library Is Empty'}
+                    </h3>
+                    <p
+                      style={{
+                        margin: 0,
+                        color: '#64748B',
+                        fontSize: '11px',
+                        maxWidth: '420px',
+                        marginInline: 'auto',
+                      }}
+                    >
+                      {hasShelfFilters
+                        ? 'Try clearing your search, category, program badge, or letter filter.'
+                        : 'No books have been published to the open library yet.'}
+                    </p>
+                  </div>
+                </section>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  {shelfSections.map(({ letter, books }) => (
+                    <section
+                      key={letter}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '15px',
+                          fontWeight: 'bold',
+                          color: '#0F294A',
+                          borderBottom: '1px solid #E2E8F0',
+                          paddingBottom: '4px',
+                        }}
+                      >
+                        {letter}
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns:
+                            'repeat(auto-fill, minmax(150px, 1fr))',
+                          gap: '20px',
+                          alignItems: 'start',
+                        }}
+                      >
+                        {books.map((book) => {
+                          const isBusy =
+                            previewLoadingDocId === book.id ||
+                            downloadingDocId === book.id;
+
+                          return (
+                            <article
+                              key={book.id}
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px',
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setRelatedTargetDoc(book)}
+                                style={{
+                                  position: 'relative',
+                                  aspectRatio: '2 / 3',
+                                  width: '100%',
+                                  padding: 0,
+                                  border: '1px solid #CBD5E1',
+                                  borderRadius: '3px',
+                                  background: '#FFFFFF',
+                                  cursor: 'pointer',
+                                  display: 'block',
+                                  textAlign: 'left',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                <PdfThumbnail
+                                  fileUrl={thumbUrls[book.id] || null}
+                                  title={book.name}
+                                  department={book.category || 'Open Library'}
+                                />
+                              </button>
+
+                              <div>
+                                <div
+                                  style={{
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    color: '#0F294A',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                  title={book.name}
+                                >
+                                  {book.name}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: '11px',
+                                    color: '#64748B',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {book.author || book.category || 'Open Access'}
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void handlePreviewRepoDoc(
+                                      mapToRepositoryDocument(book)
+                                    )
+                                  }
+                                  style={{
+                                    flex: 1,
+                                    minHeight: '26px',
+                                    fontSize: '10px',
+                                    padding: '0 6px',
+                                  }}
+                                >
+                                  <Eye size={11} />
+                                  <span>Read</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void handleDownloadRepoDoc(
+                                      mapToRepositoryDocument(book)
+                                    )
+                                  }
+                                  style={{
+                                    minHeight: '26px',
+                                    fontSize: '10px',
+                                    padding: '0 6px',
+                                  }}
+                                  title="Download PDF"
+                                >
+                                  <Download size={11} />
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 2. Manage Uploads Table (Strictly shows & manages only this instructor's uploads) */}
+          {activeTab === 'manage-uploads' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div
                 style={{
-                  padding: '28px',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
+                  justifyContent: 'space-between',
                   gap: '8px',
-                  fontSize: '12px',
-                  color: '#475569',
-                }}
-                role="status"
-                aria-live="polite"
-              >
-                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-                <span>Loading PDFs for {assignedDepartmentLabel}...</span>
-              </div>
-            </section>
-          ) : filteredDocuments.length === 0 ? (
-            <section className="repo-panel">
-              <div className="repo-panel-head">
-                <strong>DEPARTMENT &amp; COURSE PDFS</strong>
-                <span>0 RECORDS</span>
-              </div>
-              <div
-                style={{
-                  padding: '28px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  color: '#64748B',
+                  flexWrap: 'wrap',
                 }}
               >
-                There is no data for {assignedDepartmentLabel} yet.
+                <strong style={{ fontSize: '13px' }}>
+                  Manage My Uploaded Content Only
+                </strong>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => void loadMyUploads()}
+                    disabled={isLoadingUploads}
+                  >
+                    {isLoadingUploads ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={14} />
+                    )}
+                    <span>{isLoadingUploads ? 'Syncing...' : 'Sync Uploads'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => setIsUploadModalOpen(true)}
+                    disabled={isLoadingCategories || dbCategoryNames.length === 0}
+                  >
+                    <FileUp size={14} />
+                    <span>Upload Book</span>
+                  </button>
+                </div>
               </div>
-            </section>
-          ) : viewMode === 'table' ? (
-            <DocumentsTable
-              documents={mappedDocuments}
-              total={filteredDocuments.length}
-              selectedIds={selectedIds}
-              onSelectionChange={setSelectedIds}
-              onPreview={handlePreviewDoc}
-              onDownload={handleDownloadDoc}
-              loadingDocId={previewLoadingDocId}
-              downloadingDocId={downloadingDocId}
-            />
-          ) : (
-            <DocumentsGallery
-              documents={mappedDocuments}
-              total={filteredDocuments.length}
-              selectedIds={selectedIds}
-              onSelectionChange={setSelectedIds}
-              onPreview={(d) => void handlePreviewDoc(d)}
-              onDownload={(d) => void handleDownloadDoc(d)}
+
+              <section className="repo-panel">
+                <div className="repo-panel-head">
+                  <strong>
+                    <BookOpen size={15} aria-hidden="true" /> MY UPLOADS (
+                    {myUploads.length})
+                  </strong>
+                  <span>ONLY YOUR UPLOADED CONTENT</span>
+                </div>
+
+                <div className="repo-filters">
+                  <label>
+                    <span>Category</span>
+                    <select
+                      value={tableCategoryFilter}
+                      onChange={(e) => setTableCategoryFilter(e.target.value)}
+                    >
+                      <option value="ALL">All Database Categories</option>
+                      {dbCategoryNames.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="repo-search">
+                    <span>Search my uploads</span>
+                    <div>
+                      <Search size={15} aria-hidden="true" />
+                      <input
+                        value={tableSearch}
+                        onChange={(e) => setTableSearch(e.target.value)}
+                        placeholder="Search your uploaded book title, category, badge, or tag..."
+                      />
+                    </div>
+                  </label>
+
+                  <button
+                    type="button"
+                    className="repo-reset"
+                    onClick={() => {
+                      setTableCategoryFilter('ALL');
+                      setTableSearch('');
+                    }}
+                  >
+                    Reset
+                  </button>
+                </div>
+
+                {selectedUploads.length > 0 && (
+                  <div className="repo-selection-toolbar" aria-live="polite">
+                    <div className="repo-selection-summary">
+                      <span className="repo-selection-check">
+                        <Check size={13} aria-hidden="true" />
+                      </span>
+                      <strong>{selectedUploads.length} selected</strong>
+                      <span>Remove your selected uploaded books.</span>
+                    </div>
+                    <div className="repo-selection-actions">
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={isBulkDeleting}
+                        onClick={() => {
+                          setBulkDeleteError('');
+                          setIsBulkDeleteModalOpen(true);
+                        }}
+                      >
+                        {isBulkDeleting ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={13} aria-hidden="true" />
+                        )}
+                        <span>Delete selected ({selectedUploads.length})</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {uploadsError && (
+                  <div
+                    role="alert"
+                    className="repo-alert-error"
+                    style={{ margin: '10px 14px' }}
+                  >
+                    <AlertCircle size={14} aria-hidden="true" />
+                    <span>{uploadsError}</span>
+                  </div>
+                )}
+
+                <div className="repo-table-wrap">
+                  <table className="repo-table">
+                    <thead>
+                      <tr>
+                        <th className="repo-select-column">
+                          <button
+                            type="button"
+                            className="repo-select-all"
+                            onClick={toggleAllUploads}
+                            disabled={myUploads.length === 0 || isLoadingUploads}
+                            aria-label={
+                              allUploadsSelected
+                                ? 'Deselect all your uploads'
+                                : 'Select all your uploads'
+                            }
+                          >
+                            <span
+                              className={`repo-checkbox-mark${
+                                allUploadsSelected ? ' is-checked' : ''
+                              }${
+                                someUploadsSelected && !allUploadsSelected
+                                  ? ' is-indeterminate'
+                                  : ''
+                              }`}
+                              aria-hidden="true"
+                            >
+                              {allUploadsSelected ? <Check size={12} /> : null}
+                              {someUploadsSelected && !allUploadsSelected ? (
+                                <span />
+                              ) : null}
+                            </span>
+                          </button>
+                        </th>
+                        <th>Book, Badges &amp; Tags</th>
+                        <th>Category</th>
+                        <th>Size</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {isLoadingUploads ? (
+                        <tr>
+                          <td colSpan={5} className="empty">
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                              }}
+                            >
+                              <Loader2 size={14} className="animate-spin" />
+                              Loading your uploaded books...
+                            </span>
+                          </td>
+                        </tr>
+                      ) : myUploads.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="empty">
+                            No books uploaded by you match this filter. Click
+                            &ldquo;Upload Book&rdquo; to add a PDF.
+                          </td>
+                        </tr>
+                      ) : (
+                        myUploads.map((doc) => {
+                          const isSelected = selectedIds.has(doc.id);
+                          const isBusy = busyActionId === doc.id || isBulkDeleting;
+                          const docPrograms = extractNames(doc.programs);
+                          const docTags = extractNames(doc.tags);
+
+                          return (
+                            <tr
+                              key={doc.id}
+                              className={`repo-document-row${
+                                isSelected ? ' is-selected' : ''
+                              }`}
+                              onClick={() => toggleOne(doc.id)}
+                            >
+                              <td onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  className={`repo-row-checkbox${
+                                    isSelected ? ' is-checked' : ''
+                                  }`}
+                                  onClick={() => toggleOne(doc.id)}
+                                  aria-label={
+                                    isSelected
+                                      ? `Deselect ${doc.name}`
+                                      : `Select ${doc.name}`
+                                  }
+                                  aria-pressed={isSelected}
+                                >
+                                  <span
+                                    className={`repo-checkbox-mark${
+                                      isSelected ? ' is-checked' : ''
+                                    }`}
+                                    aria-hidden="true"
+                                  >
+                                    {isSelected ? <Check size={12} /> : null}
+                                  </span>
+                                </button>
+                              </td>
+
+                              <td>
+                                <div>
+                                  <strong>{doc.name}</strong>
+                                  <div style={{ fontSize: '11px', color: '#64748B' }}>
+                                    {doc.author ? `${doc.author} · ` : ''}
+                                    {doc.filename}
+                                  </div>
+
+                                  {docPrograms.length > 0 && (
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: '4px',
+                                        marginTop: '4px',
+                                      }}
+                                    >
+                                      {docPrograms.map((prog) => (
+                                        <span
+                                          key={prog}
+                                          className="category"
+                                          style={{
+                                            background: '#EFF6FF',
+                                            color: '#1E3A8A',
+                                          }}
+                                        >
+                                          <BookMarked
+                                            size={10}
+                                            style={{
+                                              display: 'inline',
+                                              marginRight: '3px',
+                                            }}
+                                          />
+                                          {prog}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {docTags.length > 0 && (
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: '4px',
+                                        marginTop: '4px',
+                                      }}
+                                    >
+                                      {docTags.map((tag) => (
+                                        <span key={tag} className="category">
+                                          #{tag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td>
+                                <span className="category">
+                                  {doc.category || 'Uncategorized'}
+                                </span>
+                              </td>
+
+                              <td className="nowrap">{formatBytes(doc.size)}</td>
+
+                              <td onClick={(e) => e.stopPropagation()}>
+                                <div className="row-actions">
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={isBusy}
+                                    onClick={() => void handleTablePreview(doc)}
+                                  >
+                                    {busyActionId === doc.id ? (
+                                      <Loader2
+                                        size={13}
+                                        className="animate-spin"
+                                      />
+                                    ) : (
+                                      <Eye size={13} />
+                                    )}
+                                    <span>View</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={isBusy}
+                                    onClick={() => void handleTableDownload(doc)}
+                                  >
+                                    <Download size={13} />
+                                    <span>Download</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={isBusy}
+                                    onClick={() => openEditModal(doc)}
+                                  >
+                                    <Edit3 size={13} />
+                                    <span>Edit</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={isBusy}
+                                    onClick={() => setDeletingDoc(doc)}
+                                  >
+                                    <Trash2 size={13} />
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {/* 3. Database Categories */}
+          {activeTab === 'categories' && (
+            <AdminCategoriesSection
+              categories={categories}
+              isLoading={isLoadingCategories}
+              onRefreshCategories={loadCategories}
+              onCreateCategory={handleCreateCategory}
+              onUpdateCategory={handleUpdateCategory}
+              onDeleteCategory={handleDeleteCategory}
+              onBulkDeleteCategories={handleBulkDeleteCategories}
+              openCreateSignal={openCategorySignal}
             />
           )}
         </div>
       </main>
 
-      <DocumentPreviewModal
-        document={previewDoc}
-        onClose={closePreviewModal}
-        onDownload={handleDownloadDoc}
-        isLoading={Boolean(previewLoadingDocId && previewDoc?.docId === previewLoadingDocId)}
-        isDownloading={Boolean(downloadingDocId && previewDoc?.docId === downloadingDocId)}
+      {/* Upload Book Modal linked to Database Categories */}
+      <UploadPdfModal
+        isOpen={isUploadModalOpen}
+        categories={dbCategoryNames}
+        availablePrograms={programBadgeOptions}
+        defaultCategory={
+          categoryFilter !== 'ALL' ? categoryFilter : dbCategoryNames[0] || ''
+        }
+        onClose={() => setIsUploadModalOpen(false)}
+        onSubmitUpload={handleUploadSubmit}
       />
 
-      {isUploadModalOpen && (
+      {/* Related Books Modal from Shelf */}
+      {relatedTargetDoc && (
         <div
           className="modal-backdrop"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget && !isSubmitting) setIsUploadModalOpen(false);
+            if (e.target === e.currentTarget) setRelatedTargetDoc(null);
           }}
         >
           <section
             className="repo-modal"
+            style={{ width: 'min(580px, 100%)' }}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="upload-pdf-modal-title"
+            aria-labelledby="instructor-related-book-title"
           >
             <header>
-              <strong id="upload-pdf-modal-title">
-                <FileUp size={15} aria-hidden="true" /> UPLOAD PDF · {assignedDepartmentCode}
+              <strong id="instructor-related-book-title">
+                <BookMarked size={15} aria-hidden="true" />
+                BOOK DETAILS &amp; RELATED BOOKS
               </strong>
               <button
                 type="button"
-                onClick={() => setIsUploadModalOpen(false)}
-                disabled={isSubmitting}
+                onClick={() => setRelatedTargetDoc(null)}
                 aria-label="Close modal"
               >
                 <X size={18} />
@@ -906,172 +2028,183 @@ export const InstructorDashboard: React.FC<Props> = ({
             </header>
 
             <div className="modal-body">
-              <form id="course-pdf-form" onSubmit={handlePublishPdf}>
-                <div className="login-field" style={{ marginBottom: '14px' }}>
-                  <label htmlFor="course-pdf-file">PDF File (.pdf only)</label>
-                  <div
-                    style={{
-                      border: '1px dashed #94A3B8',
-                      background: '#F8FAFC',
-                      padding: '14px',
-                      borderRadius: '2px',
-                      textAlign: 'center',
-                    }}
-                  >
-                    <input
-                      ref={fileInputRef}
-                      id="course-pdf-file"
-                      type="file"
-                      accept=".pdf,application/pdf"
-                      onChange={handlePdfFileChange}
-                      style={{ display: 'none' }}
-                    />
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={isSubmitting}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Upload size={13} />
-                      <span>
-                        {selectedPdfFile
-                          ? `${selectedPdfFile.name} (${formatFileSize(selectedPdfFile.size)})`
-                          : 'Choose PDF File'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
+              <small>{relatedTargetDoc.category || 'OPEN LIBRARY'}</small>
+              <h2>{relatedTargetDoc.name}</h2>
+              <p>
+                {relatedTargetDoc.author ? `By ${relatedTargetDoc.author} · ` : ''}
+                {formatBytes(relatedTargetDoc.size)} · Open Access
+              </p>
 
-                {uploadError && (
-                  <div className="mb-3 p-2 bg-[#FEF2F2] border border-[#FECACA] text-[#B91C1C] text-[11px]">
-                    {uploadError}
-                  </div>
-                )}
-
-                <div className="login-field" style={{ marginBottom: '14px' }}>
-                  <label htmlFor="pdf-title">Document Title</label>
-                  <div className="login-input-wrap" style={{ height: '36px' }}>
-                    <input
-                      id="pdf-title"
-                      type="text"
-                      required
-                      disabled={isSubmitting}
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      placeholder="e.g. Week 03 Lecture Notes"
-                    />
-                  </div>
-                </div>
-
+              {extractNames(relatedTargetDoc.programs).length > 0 && (
                 <div
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: '12px',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '6px',
+                    marginTop: '10px',
                   }}
                 >
-                  <div className="login-field">
-                    <label htmlFor="pdf-course">Course</label>
-                    <div className="login-input-wrap" style={{ height: '36px' }}>
-                      <select
-                        id="pdf-course"
-                        disabled={isSubmitting}
-                        style={{
-                          width: '100%',
-                          border: 0,
-                          outline: 0,
-                          background: 'transparent',
-                          fontSize: '11px',
-                        }}
-                        value={selectedCourseId}
-                        onChange={(e) => setSelectedCourseId(e.target.value)}
-                      >
-                        <option value="">Department General</option>
-                        {courses.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.code} · {c.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="login-field">
-                    <label htmlFor="pdf-category">Category</label>
-                    <div className="login-input-wrap" style={{ height: '36px' }}>
-                      <select
-                        id="pdf-category"
-                        disabled={isSubmitting}
-                        style={{
-                          width: '100%',
-                          border: 0,
-                          outline: 0,
-                          background: 'transparent',
-                          fontSize: '11px',
-                        }}
-                        value={category}
-                        onChange={(e) => setCategory(e.target.value)}
-                      >
-                        {CATEGORIES.map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
+                  {extractNames(relatedTargetDoc.programs).map((prog) => (
+                    <span key={prog} className="category">
+                      {prog}
+                    </span>
+                  ))}
                 </div>
-              </form>
+              )}
+
+              {extractNames(relatedTargetDoc.tags).length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '6px',
+                    marginTop: '8px',
+                  }}
+                >
+                  {extractNames(relatedTargetDoc.tags).map((tag) => (
+                    <span key={tag} className="category">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ marginTop: '16px' }}>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    marginBottom: '8px',
+                  }}
+                >
+                  <Sparkles size={14} aria-hidden="true" />
+                  <span>Related Books ({relatedMatches.length})</span>
+                </div>
+
+                {relatedMatches.length === 0 ? (
+                  <p style={{ fontSize: '11px', color: '#64748B' }}>
+                    No related books matched by program badges or topic tags yet.
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    {relatedMatches.map(
+                      ({ doc: rel, reason, isAdjacentCategoryMatch }) => (
+                        <div
+                          key={rel.id}
+                          style={{
+                            padding: '8px 10px',
+                            border: '1px solid #CBD5E1',
+                            borderRadius: '2px',
+                            background: '#F8FAFC',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 600 }}>
+                              {rel.name}{' '}
+                              <span
+                                className="category"
+                                style={{ marginLeft: '6px' }}
+                              >
+                                {rel.category || 'General'}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '10px',
+                                color: '#475569',
+                                marginTop: '2px',
+                              }}
+                            >
+                              {reason}
+                              {isAdjacentCategoryMatch
+                                ? ' · Cross-category badge link'
+                                : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => setRelatedTargetDoc(rel)}
+                          >
+                            Inspect
+                          </button>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <footer>
               <button
                 type="button"
                 className="secondary"
-                onClick={() => setIsUploadModalOpen(false)}
-                disabled={isSubmitting}
+                onClick={() =>
+                  void handleDownloadRepoDoc(
+                    mapToRepositoryDocument(relatedTargetDoc)
+                  )
+                }
               >
-                Cancel
+                <Download size={13} />
+                <span>Download</span>
               </button>
               <button
-                type="submit"
-                form="course-pdf-form"
+                type="button"
                 className="primary"
-                disabled={isSubmitting}
+                onClick={() => {
+                  const target = relatedTargetDoc;
+                  setRelatedTargetDoc(null);
+                  void handlePreviewRepoDoc(mapToRepositoryDocument(target));
+                }}
               >
-                {isSubmitting ? (
-                  <Loader2 size={13} className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <FileText size={13} aria-hidden="true" />
-                )}
-                <span>{isSubmitting ? 'Uploading...' : 'Upload PDF'}</span>
+                <Eye size={13} />
+                <span>Open PDF</span>
               </button>
             </footer>
           </section>
         </div>
       )}
 
+      {/* Edit Own Upload Modal */}
       {editingDoc && (
         <div
           className="modal-backdrop"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget && !isSubmitting) setEditingDoc(null);
+            if (e.target === e.currentTarget && !isSavingEdit) {
+              setEditingDoc(null);
+            }
           }}
         >
           <section
             className="repo-modal"
+            style={{ width: 'min(580px, 100%)' }}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="edit-pdf-modal-title"
+            aria-labelledby="edit-doc-modal-title"
           >
             <header>
-              <strong id="edit-pdf-modal-title">
-                <Pencil size={14} aria-hidden="true" /> EDIT PDF METADATA
+              <strong id="edit-doc-modal-title">
+                <Edit3 size={15} aria-hidden="true" />
+                UPDATE UPLOADED BOOK
               </strong>
               <button
                 type="button"
                 onClick={() => setEditingDoc(null)}
-                disabled={isSubmitting}
+                disabled={isSavingEdit}
                 aria-label="Close modal"
               >
                 <X size={18} />
@@ -1079,85 +2212,94 @@ export const InstructorDashboard: React.FC<Props> = ({
             </header>
 
             <div className="modal-body">
-              <form id="edit-pdf-form" onSubmit={handleUpdatePdf}>
-                {editError && (
-                  <div className="mb-3 p-2 bg-[#FEF2F2] border border-[#FECACA] text-[#B91C1C] text-[11px]">
-                    {editError}
-                  </div>
-                )}
+              <small>CATALOG &amp; CATEGORY LINK</small>
+              <h2>Edit Book</h2>
+              <p>Update title, linked database category, program badges, or tags.</p>
 
-                <div className="login-field" style={{ marginBottom: '14px' }}>
-                  <label htmlFor="edit-pdf-title">Document Title</label>
-                  <div className="login-input-wrap" style={{ height: '36px' }}>
-                    <input
-                      id="edit-pdf-title"
-                      type="text"
-                      required
-                      disabled={isSubmitting}
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                    />
-                  </div>
+              {editError && (
+                <div role="alert" className="repo-alert-error">
+                  <AlertCircle size={14} aria-hidden="true" />
+                  <span>{editError}</span>
                 </div>
+              )}
 
+              <form id="edit-doc-form" onSubmit={handleSaveEdit} className="repo-form">
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
                     gap: '12px',
                   }}
                 >
-                  <div className="login-field">
-                    <label htmlFor="edit-pdf-course">Course</label>
-                    <div className="login-input-wrap" style={{ height: '36px' }}>
-                      <select
-                        id="edit-pdf-course"
-                        disabled={isSubmitting}
-                        style={{
-                          width: '100%',
-                          border: 0,
-                          outline: 0,
-                          background: 'transparent',
-                          fontSize: '11px',
-                        }}
-                        value={editCourseId}
-                        onChange={(e) => setEditCourseId(e.target.value)}
-                      >
-                        <option value="">Department General</option>
-                        {courses.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.code} · {c.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
+                  <label className="repo-field">
+                    <span>Book Title</span>
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      disabled={isSavingEdit}
+                    />
+                  </label>
 
-                  <div className="login-field">
-                    <label htmlFor="edit-pdf-category">Category</label>
-                    <div className="login-input-wrap" style={{ height: '36px' }}>
-                      <select
-                        id="edit-pdf-category"
-                        disabled={isSubmitting}
-                        style={{
-                          width: '100%',
-                          border: 0,
-                          outline: 0,
-                          background: 'transparent',
-                          fontSize: '11px',
-                        }}
-                        value={editCategory}
-                        onChange={(e) => setEditCategory(e.target.value)}
-                      >
-                        {CATEGORIES.map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
+                  <label className="repo-field">
+                    <span>Author</span>
+                    <input
+                      type="text"
+                      value={editAuthor}
+                      onChange={(e) => setEditAuthor(e.target.value)}
+                      disabled={isSavingEdit}
+                    />
+                  </label>
                 </div>
+
+                <label className="repo-field">
+                  <span>Category (From Database)</span>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                    disabled={isSavingEdit}
+                  >
+                    {dbCategoryNames.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="repo-field">
+                  <span>Program Badges (Comma-separated)</span>
+                  <input
+                    type="text"
+                    placeholder="e.g. Cyber Security, Networking"
+                    value={editProgramsText}
+                    onChange={(e) => setEditProgramsText(e.target.value)}
+                    disabled={isSavingEdit}
+                  />
+                </label>
+
+                <label className="repo-field">
+                  <span>Tags (Comma-separated)</span>
+                  <input
+                    type="text"
+                    placeholder="e.g. tcp-ip, firewalls, cryptography"
+                    value={editTagsText}
+                    onChange={(e) => setEditTagsText(e.target.value)}
+                    disabled={isSavingEdit}
+                  />
+                </label>
+
+                <label className="repo-field">
+                  <span>Summary / Notes</span>
+                  <input
+                    type="text"
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    disabled={isSavingEdit}
+                  />
+                </label>
               </form>
             </div>
 
@@ -1166,25 +2308,197 @@ export const InstructorDashboard: React.FC<Props> = ({
                 type="button"
                 className="secondary"
                 onClick={() => setEditingDoc(null)}
-                disabled={isSubmitting}
+                disabled={isSavingEdit}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                form="edit-pdf-form"
+                form="edit-doc-form"
                 className="primary"
-                disabled={isSubmitting}
+                disabled={isSavingEdit || !editName.trim()}
               >
-                {isSubmitting && (
-                  <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                {isSavingEdit ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check size={13} aria-hidden="true" />
+                    <span>Save Changes</span>
+                  </>
                 )}
-                <span>{isSubmitting ? 'Saving...' : 'Save Changes'}</span>
               </button>
             </footer>
           </section>
         </div>
       )}
+
+      {/* Single Delete Own Upload Modal */}
+      {deletingDoc && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !isDeletingDoc) {
+              setDeletingDoc(null);
+            }
+          }}
+        >
+          <section
+            className="repo-modal"
+            style={{ width: 'min(460px, 100%)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-doc-modal-title"
+          >
+            <header>
+              <strong id="delete-doc-modal-title">
+                <Trash2 size={15} aria-hidden="true" />
+                DELETE UPLOAD
+              </strong>
+              <button
+                type="button"
+                onClick={() => setDeletingDoc(null)}
+                disabled={isDeletingDoc}
+                aria-label="Close modal"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="modal-body">
+              <small>PERMANENT REMOVAL</small>
+              <h2>Delete &ldquo;{deletingDoc.name}&rdquo;?</h2>
+              <p>
+                Remove <strong>{deletingDoc.filename}</strong> ({formatBytes(deletingDoc.size)}
+                ) from your library uploads.
+              </p>
+            </div>
+
+            <footer>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setDeletingDoc(null)}
+                disabled={isDeletingDoc}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={isDeletingDoc}
+                onClick={() => void handleConfirmDelete()}
+              >
+                {isDeletingDoc ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={13} aria-hidden="true" />
+                    <span>Delete Book</span>
+                  </>
+                )}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {/* Bulk Delete Own Uploads Modal */}
+      {isBulkDeleteModalOpen && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !isBulkDeleting) {
+              setIsBulkDeleteModalOpen(false);
+            }
+          }}
+        >
+          <section
+            className="repo-modal"
+            style={{ width: 'min(480px, 100%)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-delete-doc-title"
+          >
+            <header>
+              <strong id="bulk-delete-doc-title">
+                <Trash2 size={15} aria-hidden="true" />
+                BULK DELETE MY UPLOADS
+              </strong>
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteModalOpen(false)}
+                disabled={isBulkDeleting}
+                aria-label="Close modal"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="modal-body">
+              <small>BATCH REMOVAL</small>
+              <h2>Delete {selectedUploads.length} Uploaded Books?</h2>
+              <p>
+                Permanently remove:{' '}
+                <strong>{selectedUploads.map((d) => d.name).join(', ')}</strong>.
+              </p>
+
+              {bulkDeleteError && (
+                <div role="alert" className="repo-alert-error">
+                  <AlertCircle size={14} aria-hidden="true" />
+                  <span>{bulkDeleteError}</span>
+                </div>
+              )}
+            </div>
+
+            <footer>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setIsBulkDeleteModalOpen(false)}
+                disabled={isBulkDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={isBulkDeleting}
+                onClick={() => void handleBulkDeleteConfirm()}
+              >
+                {isBulkDeleting ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                    <span>Deleting {selectedUploads.length}...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={13} aria-hidden="true" />
+                    <span>Delete {selectedUploads.length} Selected</span>
+                  </>
+                )}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      <DocumentPreviewModal
+        document={previewDoc}
+        onClose={closePreviewModal}
+        onDownload={handleDownloadRepoDoc}
+        isLoading={Boolean(
+          previewLoadingDocId && previewDoc?.docId === previewLoadingDocId
+        )}
+        isDownloading={Boolean(
+          downloadingDocId && previewDoc?.docId === downloadingDocId
+        )}
+      />
     </div>
   );
 };

@@ -118,11 +118,11 @@ export class LocalStorageProvider implements StorageProvider {
     return readFile(fullPath);
   }
 
-  createSignedUrl(storageKey: string, expiresInSeconds = 300): string {
-    const exp = Date.now() + expiresInSeconds * 1000;
-    const token = signStoragePayload({ key: storageKey, exp });
-    return `/api/documents/file?token=${encodeURIComponent(token)}`;
-  }
+createSignedUrl(storageKey: string, expiresInSeconds = 60 * 60 * 24): string {
+  const exp = Date.now() + expiresInSeconds * 1000;
+  const token = signStoragePayload({ key: storageKey, exp });
+  return `/api/documents/file?token=${encodeURIComponent(token)}`;
+}
 }
 
 export class UploadThingStorageProvider implements StorageProvider {

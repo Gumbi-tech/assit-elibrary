@@ -2,11 +2,102 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getStorageProvider } from '@/lib/storage';
-import { canUserAccessDocument, getAccessContext } from '@/lib/document-access';
+import { canManageDocuments, getAccessContext } from '@/lib/document-access';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
+
+function toSlug(input: string): string {
+  return (
+    input
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || `item-${Date.now()}`
+  );
+}
+
+function normalizeStringArray(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  return input
+    .map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (item && typeof item === 'object' && 'name' in item && typeof item.name === 'string') {
+        return item.name.trim();
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+async function resolveProgramConnect(names: string[]): Promise<Array<{ id: string }>> {
+  const unique = Array.from(
+    new Map(names.map((n) => [n.toLowerCase(), n])).values()
+  );
+  const refs: Array<{ id: string }> = [];
+
+  for (const progName of unique) {
+    const existing = await prisma.program.findFirst({
+      where: { name: { equals: progName, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (existing) {
+      refs.push({ id: existing.id });
+      continue;
+    }
+
+    const baseSlug = toSlug(progName);
+    const slugTaken = await prisma.program.findUnique({
+      where: { slug: baseSlug },
+      select: { id: true },
+    });
+    const created = await prisma.program.create({
+      data: {
+        name: progName,
+        slug: slugTaken ? `${baseSlug}-${Date.now().toString().slice(-4)}` : baseSlug,
+      },
+      select: { id: true },
+    });
+    refs.push({ id: created.id });
+  }
+
+  return refs;
+}
+
+async function resolveTagConnect(names: string[]): Promise<Array<{ id: string }>> {
+  const unique = Array.from(
+    new Set(names.map((t) => t.trim().toLowerCase()).filter(Boolean))
+  );
+  const refs: Array<{ id: string }> = [];
+
+  for (const tagName of unique) {
+    const existing = await prisma.tag.findUnique({
+      where: { name: tagName },
+      select: { id: true },
+    });
+    if (existing) {
+      refs.push({ id: existing.id });
+      continue;
+    }
+
+    const baseSlug = toSlug(tagName);
+    const slugTaken = await prisma.tag.findUnique({
+      where: { slug: baseSlug },
+      select: { id: true },
+    });
+    const created = await prisma.tag.create({
+      data: {
+        name: tagName,
+        slug: slugTaken ? `${baseSlug}-${Date.now().toString().slice(-4)}` : baseSlug,
+      },
+      select: { id: true },
+    });
+    refs.push({ id: created.id });
+  }
+
+  return refs;
+}
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
@@ -15,7 +106,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       return NextResponse.json({ ok: false, error: 'Unauthorized.' }, { status: 401 });
     }
 
-    if (ctx.role === 'STUDENT') {
+    if (!canManageDocuments(ctx.role)) {
       return NextResponse.json(
         { ok: false, error: 'Students are not permitted to update documents.' },
         { status: 403 }
@@ -25,65 +116,86 @@ export async function PATCH(req: Request, context: RouteContext) {
     const { id } = await context.params;
     const existing = await prisma.document.findUnique({
       where: { id },
-      include: { course: { select: { id: true, departmentId: true } } },
+      include: { category: true },
     });
 
     if (!existing) {
       return NextResponse.json({ ok: false, error: 'Document not found.' }, { status: 404 });
     }
 
-    if (!canUserAccessDocument(ctx, existing)) {
-      return NextResponse.json({ ok: false, error: 'Forbidden.' }, { status: 403 });
-    }
+    const body = await req.json().catch(() => ({}));
 
-    const body = await req.json();
     const nextName =
-      typeof body.name === 'string' && body.name.trim() ? body.name.trim() : existing.name;
-    const nextCategory =
-      typeof body.category === 'string' && body.category.trim()
-        ? body.category.trim()
-        : existing.category;
+      typeof body.name === 'string' && body.name.trim()
+        ? body.name.trim()
+        : existing.name;
 
-    let nextCourseId: string | null =
-      body.courseId === '' || body.courseId === null
-        ? null
-        : typeof body.courseId === 'string'
-          ? body.courseId
-          : existing.courseId;
+    let categoryRelationUpdate:
+      | { connect: { id: string } }
+      | { disconnect: true }
+      | undefined;
 
-    let nextDepartmentId: string | null =
-      typeof body.departmentId === 'string' && body.departmentId.trim()
-        ? body.departmentId.trim()
-        : existing.departmentId;
+    if (typeof body.category === 'string') {
+      const trimmedCategory = body.category.trim();
+      if (!trimmedCategory) {
+        categoryRelationUpdate = { disconnect: true };
+      } else {
+        const matchedCategory = await prisma.category.findFirst({
+          where: {
+            name: { equals: trimmedCategory, mode: 'insensitive' },
+          },
+          select: { id: true },
+        });
 
-    if (nextCourseId) {
-      const course = await prisma.course.findUnique({
-        where: { id: nextCourseId },
-        select: { id: true, departmentId: true },
-      });
-      if (!course) {
-        return NextResponse.json(
-          { ok: false, error: 'Selected course does not exist.' },
-          { status: 404 }
-        );
+        if (!matchedCategory) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: `Category "${trimmedCategory}" does not exist in the database.`,
+            },
+            { status: 400 }
+          );
+        }
+        categoryRelationUpdate = { connect: { id: matchedCategory.id } };
       }
-      if (!nextDepartmentId) {
-        nextDepartmentId = course.departmentId;
-      }
+    } else if (body.category === null) {
+      categoryRelationUpdate = { disconnect: true };
     }
+
+    const programNames = normalizeStringArray(body.programs);
+    const tagNames = normalizeStringArray(body.tags);
+
+    const [programRefs, tagRefs] = await Promise.all([
+      programNames !== undefined ? resolveProgramConnect(programNames) : Promise.resolve(undefined),
+      tagNames !== undefined ? resolveTagConnect(tagNames) : Promise.resolve(undefined),
+    ]);
 
     const updated = await prisma.document.update({
       where: { id },
       data: {
         name: nextName,
-        category: nextCategory,
-        courseId: nextCourseId,
-        departmentId: nextDepartmentId,
+        title: nextName,
+        ...(typeof body.author === 'string'
+          ? { author: body.author.trim() || null }
+          : {}),
+        ...(typeof body.description === 'string'
+          ? { description: body.description.trim() || null }
+          : {}),
+        ...(categoryRelationUpdate ? { category: categoryRelationUpdate } : {}),
+        ...(programRefs !== undefined ? { programs: { set: programRefs } } : {}),
+        ...(tagRefs !== undefined ? { tags: { set: tagRefs } } : {}),
       },
       include: {
-        course: { select: { id: true, title: true, code: true, departmentId: true } },
-        department: { select: { id: true, name: true, code: true } },
-        uploadedBy: { select: { id: true, fullName: true, email: true } },
+        category: true,
+        programs: {
+          orderBy: { name: 'asc' },
+        },
+        tags: {
+          orderBy: { name: 'asc' },
+        },
+        uploadedBy: {
+          select: { id: true, fullName: true, email: true },
+        },
       },
     });
 
@@ -91,7 +203,11 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     return NextResponse.json({
       ok: true,
-      document: { ...updated, signedUrl },
+      document: {
+        ...updated,
+        category: updated.category?.name ?? null,
+        signedUrl,
+      },
     });
   } catch (err) {
     console.error('PATCH /api/documents/[id] error:', err);
@@ -109,7 +225,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
       return NextResponse.json({ ok: false, error: 'Unauthorized.' }, { status: 401 });
     }
 
-    if (ctx.role === 'STUDENT') {
+    if (!canManageDocuments(ctx.role)) {
       return NextResponse.json(
         { ok: false, error: 'Students are not permitted to delete documents.' },
         { status: 403 }
@@ -119,15 +235,10 @@ export async function DELETE(_req: Request, context: RouteContext) {
     const { id } = await context.params;
     const existing = await prisma.document.findUnique({
       where: { id },
-      include: { course: { select: { departmentId: true } } },
     });
 
     if (!existing) {
       return NextResponse.json({ ok: false, error: 'Document not found.' }, { status: 404 });
-    }
-
-    if (!canUserAccessDocument(ctx, existing)) {
-      return NextResponse.json({ ok: false, error: 'Forbidden.' }, { status: 403 });
     }
 
     await prisma.document.delete({ where: { id } });
