@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -11,7 +10,6 @@ import {
   CloudDownload,
   FileText,
   GraduationCap,
-  Laptop,
   Library,
   LockKeyhole,
   Monitor,
@@ -34,11 +32,11 @@ import RepositoryFooter from '@/components/repository/RepositoryFooter';
 import { ForceChangePasswordModal } from '@/components/repository/ForceChangePasswordModal';
 
 /* -------------------------------------------------------------------------- */
-/*                              LOCAL PAGE STYLES                             */
+/*                         ASIT LOGO BRAND PALETTE & STYLES                   */
 /* -------------------------------------------------------------------------- */
 
 const styles = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap');
 
 .asit-front-door,
 .asit-front-door *,
@@ -48,16 +46,19 @@ const styles = `
 }
 
 .asit-front-door {
-  --asit-ink: #101b31;
-  --asit-muted: #68758b;
-  --asit-blue: #1685ff;
-  --asit-blue-deep: #0863d9;
-  --asit-line: #e8edf4;
-  --asit-surface: #ffffff;
-  --asit-page: #f7f9fc;
+  --asit-navy: #083358;
+  --asit-navy-deep: #05223B;
+  --asit-sky: #0095DA;
+  --asit-sky-soft: #E8F6FD;
+  --asit-gold: #F5C400;
+  --asit-red: #D92B2B;
+  --asit-ink: #122235;
+  --asit-muted: #5A6B7F;
+  --asit-line: #DCE4EE;
+  --asit-surface: #FFFFFF;
+  --asit-page: #F4F7FA;
 
   min-height: 100vh;
-  overflow: hidden;
   color: var(--asit-ink);
   background: var(--asit-page);
   font-family: 'DM Sans', sans-serif;
@@ -73,6 +74,13 @@ const styles = `
   text-decoration: none;
 }
 
+.asit-front-door button:focus-visible,
+.asit-front-door a:focus-visible,
+.asit-login-back button:focus-visible {
+  outline: 2px solid var(--asit-sky);
+  outline-offset: 2px;
+}
+
 .asit-container {
   width: min(1160px, calc(100% - 48px));
   margin: 0 auto;
@@ -81,12 +89,12 @@ const styles = `
 /* Header */
 
 .asit-header {
-  position: relative;
-  z-index: 10;
-  height: 82px;
-  background: rgba(255,255,255,.88);
-  border-bottom: 1px solid rgba(226,232,240,.8);
-  backdrop-filter: blur(18px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: 78px;
+  background: var(--asit-surface);
+  border-bottom: 1px solid var(--asit-line);
 }
 
 .asit-header-inner {
@@ -94,6 +102,7 @@ const styles = `
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 20px;
 }
 
 .asit-brand {
@@ -103,23 +112,10 @@ const styles = `
 }
 
 .asit-brand-logo {
-  width: 43px;
-  height: 43px;
+  width: 42px;
+  height: 42px;
   object-fit: contain;
-  border-radius: 12px;
-}
-
-.asit-brand-fallback {
-  width: 43px;
-  height: 43px;
-  display: grid;
-  place-items: center;
-  border-radius: 13px;
-  color: white;
-  background: linear-gradient(145deg, #258fff, #0759c9);
-  box-shadow:
-    0 5px 12px rgba(16,112,231,.22),
-    inset 0 1px 1px rgba(255,255,255,.55);
+  border-radius: 6px;
 }
 
 .asit-brand-copy {
@@ -132,732 +128,630 @@ const styles = `
   font-family: 'Manrope', sans-serif;
   font-size: 16px;
   font-weight: 800;
-  letter-spacing: -.55px;
-  color: #14213a;
+  letter-spacing: -0.4px;
+  color: var(--asit-navy);
 }
 
 .asit-brand-subtitle {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 1.45px;
-  color: #8792a5;
+  letter-spacing: 1.3px;
+  color: var(--asit-muted);
   text-transform: uppercase;
 }
 
 .asit-nav {
   display: flex;
   align-items: center;
-  gap: 34px;
+  gap: 28px;
 }
 
 .asit-nav a {
   font-size: 13px;
   font-weight: 600;
-  color: #647188;
-  transition: color .2s ease;
+  color: var(--asit-muted);
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
 
 .asit-nav a:hover {
-  color: var(--asit-blue-deep);
+  color: var(--asit-navy);
+  border-bottom-color: var(--asit-sky);
 }
 
 .asit-header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .asit-login-link {
-  padding: 11px 16px;
+  padding: 9px 14px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
-  color: #43516a;
+  color: var(--asit-navy);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
 }
 
+.asit-login-link:hover {
+  background: var(--asit-page);
+}
+
 .asit-primary-button {
-  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  min-height: 46px;
+  gap: 8px;
+  min-height: 44px;
   padding: 0 20px;
-  border: 1px solid rgba(255,255,255,.42);
-  border-radius: 12px;
-  color: #fff;
-  background:
-    linear-gradient(180deg, #55b0ff 0%, #1685ff 43%, #0870ed 100%);
-  box-shadow:
-    0 7px 17px rgba(15,115,230,.22),
-    0 2px 3px rgba(4,65,145,.15),
-    inset 0 1px 1px rgba(255,255,255,.65),
-    inset 0 -2px 3px rgba(0,55,140,.2);
+  border: 1px solid var(--asit-navy);
+  border-radius: 6px;
+  color: #FFFFFF;
+  background: var(--asit-navy);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
-  transition: transform .2s ease, box-shadow .2s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .asit-primary-button:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 11px 24px rgba(15,115,230,.28),
-    0 2px 3px rgba(4,65,145,.15),
-    inset 0 1px 1px rgba(255,255,255,.7);
-}
-
-.asit-primary-button:active {
-  transform: translateY(0);
+  background: var(--asit-navy-deep);
+  border-color: var(--asit-navy-deep);
 }
 
 .asit-button-small {
-  min-height: 40px;
-  padding: 0 17px;
-}
-
-/* Hero */
-
-.asit-hero {
-  position: relative;
-  padding: 76px 0 86px;
-  background:
-    radial-gradient(ellipse at 76% 34%, rgba(222,238,255,.72), transparent 34%),
-    linear-gradient(180deg, #fff 0%, #f8faff 100%);
-}
-
-.asit-hero::before {
-  content: '';
-  position: absolute;
-  top: 65px;
-  right: -160px;
-  width: 480px;
-  height: 480px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(38,139,255,.08), transparent 68%);
-  pointer-events: none;
-}
-
-.asit-hero-grid {
-  position: relative;
-  display: grid;
-  grid-template-columns: .92fr 1.08fr;
-  align-items: center;
-  gap: 60px;
-}
-
-.asit-hero-copy {
-  position: relative;
-  z-index: 2;
-  max-width: 510px;
-}
-
-.asit-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 24px;
-  color: #3479c7;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 1.55px;
-  text-transform: uppercase;
-}
-
-.asit-eyebrow-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #1685ff;
-  box-shadow: 0 0 0 4px rgba(22,133,255,.1);
-}
-
-.asit-hero h1 {
-  margin: 0;
-  max-width: 550px;
-  font-family: 'Manrope', sans-serif;
-  font-size: clamp(39px, 5vw, 61px);
-  line-height: 1.08;
-  letter-spacing: -3.1px;
-  font-weight: 800;
-  color: #101d35;
-}
-
-.asit-hero h1 span {
-  color: #1685ff;
-  text-shadow: 0 3px 13px rgba(22,133,255,.12);
-}
-
-.asit-hero-description {
-  max-width: 450px;
-  margin: 24px 0 28px;
-  color: #69768c;
-  font-size: 15px;
-  line-height: 1.85;
-}
-
-.asit-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px;
+  min-height: 38px;
+  padding: 0 15px;
+  font-size: 12px;
 }
 
 .asit-secondary-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
-  min-height: 46px;
+  gap: 8px;
+  min-height: 44px;
   padding: 0 18px;
-  border: 1px solid #dce4ef;
-  border-radius: 12px;
-  color: #35445d;
-  background: rgba(255,255,255,.8);
+  border: 1px solid var(--asit-line);
+  border-radius: 6px;
+  color: var(--asit-navy);
+  background: var(--asit-surface);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: background .2s ease, border-color .2s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .asit-secondary-button:hover {
-  border-color: #b8d5f5;
-  background: #fff;
+  border-color: var(--asit-sky);
+  background: var(--asit-sky-soft);
+}
+
+/* Hero (Single-column focused header block) */
+
+.asit-hero {
+  padding: 64px 0 52px;
+  background: var(--asit-surface);
+  border-bottom: 1px solid var(--asit-line);
+}
+
+.asit-hero-inner {
+  max-width: 720px;
+}
+
+.asit-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  margin-bottom: 20px;
+  border: 1px solid #C5E8FA;
+  border-left: 3px solid var(--asit-red);
+  border-radius: 4px;
+  background: var(--asit-sky-soft);
+  color: var(--asit-navy);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+}
+
+.asit-hero h1 {
+  margin: 0;
+  font-family: 'Manrope', sans-serif;
+  font-size: clamp(38px, 4.8vw, 56px);
+  line-height: 1.1;
+  letter-spacing: -1.6px;
+  font-weight: 800;
+  color: var(--asit-navy);
+}
+
+.asit-hero h1 span {
+  color: var(--asit-sky);
+}
+
+.asit-hero-description {
+  max-width: 580px;
+  margin: 20px 0 26px;
+  color: var(--asit-muted);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.asit-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
 
 .asit-trust-line {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin-top: 30px;
-  color: #8792a4;
-  font-size: 11px;
+  gap: 8px;
+  margin-top: 24px;
+  color: var(--asit-muted);
+  font-size: 12px;
   font-weight: 600;
 }
 
 .asit-trust-line svg {
-  color: #1685ff;
+  color: var(--asit-sky);
+  flex-shrink: 0;
 }
 
-/* Hero preview */
+/* Repositioned Display Showcase Band (below hero) */
 
-.asit-hero-visual {
-  position: relative;
-  min-width: 0;
-  padding: 12px 0 24px 20px;
-}
-
-.asit-visual-glow {
-  position: absolute;
-  top: 12%;
-  right: 4%;
-  width: 72%;
-  height: 72%;
-  border-radius: 50%;
-  background: rgba(28,132,255,.13);
-  filter: blur(65px);
-  pointer-events: none;
+.asit-showcase-band {
+  padding: 44px 0;
+  background: var(--asit-page);
+  border-bottom: 1px solid var(--asit-line);
 }
 
 .asit-preview-window {
-  position: relative;
   overflow: hidden;
-  border: 1px solid rgba(208,220,236,.9);
-  border-radius: 19px;
-  background: #fff;
-  box-shadow:
-    0 30px 75px rgba(32,65,112,.13),
-    0 8px 20px rgba(32,65,112,.06),
-    inset 0 1px 0 rgba(255,255,255,.9);
-  transform: perspective(1300px) rotateY(-4deg) rotateX(1deg);
-  transition: transform .35s ease;
-}
-
-.asit-preview-window:hover {
-  transform: perspective(1300px) rotateY(0) rotateX(0);
+  border: 1px solid var(--asit-line);
+  border-top: 3px solid var(--asit-gold);
+  border-radius: 8px;
+  background: var(--asit-surface);
 }
 
 .asit-preview-topbar {
-  height: 42px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 15px;
-  border-bottom: 1px solid #edf1f6;
-  background: #fff;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--asit-line);
+  background: var(--asit-surface);
 }
 
 .asit-preview-dots {
   display: flex;
-  gap: 5px;
+  gap: 6px;
 }
 
-.asit-preview-dots i {
+.asit-preview-dots i:nth-child(1) {
   display: block;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #dce3ed;
+  background: var(--asit-red);
+}
+
+.asit-preview-dots i:nth-child(2) {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--asit-gold);
+}
+
+.asit-preview-dots i:nth-child(3) {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--asit-sky);
 }
 
 .asit-preview-label {
-  color: #9aa5b5;
-  font-size: 9px;
+  color: var(--asit-navy);
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 0.9px;
   text-transform: uppercase;
 }
 
 .asit-preview-image-wrap {
-  position: relative;
-  overflow: hidden;
-  background: #eef3fa;
+  background: #EDF2F7;
 }
 
 .asit-preview-image {
   display: block;
   width: 100%;
-  height: auto;
-  min-height: 270px;
+  max-height: 460px;
   object-fit: cover;
   object-position: top center;
 }
 
-.asit-preview-caption {
-  position: absolute;
-  right: 15px;
-  bottom: 15px;
+.asit-preview-footer {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--asit-line);
+  background: var(--asit-surface);
+}
+
+.asit-preview-footer strong {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px;
-  border: 1px solid rgba(255,255,255,.65);
-  border-radius: 10px;
-  color: #1b3557;
-  background: rgba(255,255,255,.91);
-  box-shadow: 0 5px 16px rgba(20,45,80,.1);
-  backdrop-filter: blur(12px);
-  font-size: 10px;
-  font-weight: 800;
+  color: var(--asit-navy);
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.asit-preview-caption svg {
-  color: #1685ff;
+.asit-preview-footer strong svg {
+  color: var(--asit-sky);
 }
 
-.asit-floating-note {
-  position: absolute;
-  z-index: 3;
-  left: -5px;
-  bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 17px;
-  border: 1px solid rgba(224,232,242,.9);
-  border-radius: 13px;
-  background: rgba(255,255,255,.96);
-  box-shadow: 0 13px 30px rgba(29,57,95,.12);
+.asit-preview-footer span {
+  color: var(--asit-muted);
+  font-size: 12px;
 }
 
-.asit-floating-icon {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 11px;
-  color: #fff;
-  background: linear-gradient(145deg, #5bb5ff, #0870e9);
-  box-shadow:
-    0 4px 10px rgba(18,118,224,.24),
-    inset 0 1px 1px rgba(255,255,255,.6);
-}
-
-.asit-floating-note strong {
-  display: block;
-  color: #1d2c45;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.asit-floating-note span {
-  display: block;
-  margin-top: 3px;
-  color: #8a96a8;
-  font-size: 10px;
-}
-
-/* Small stats */
+/* Stats */
 
 .asit-stats {
-  padding: 23px 0;
-  border-top: 1px solid #e9eef5;
-  border-bottom: 1px solid #e9eef5;
-  background: #fff;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--asit-line);
+  background: var(--asit-surface);
 }
 
 .asit-stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 25px;
+  gap: 20px;
 }
 
 .asit-stat {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 13px;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--asit-line);
+  border-radius: 6px;
+  background: var(--asit-page);
 }
 
 .asit-stat-icon {
-  width: 39px;
-  height: 39px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
-  color: #397ec4;
-  background: #f0f6fd;
+  flex-shrink: 0;
+  border-radius: 6px;
+  color: var(--asit-navy);
+  background: var(--asit-sky-soft);
 }
 
 .asit-stat strong {
   display: block;
-  color: #1b2a43;
+  color: var(--asit-navy);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .asit-stat span {
   display: block;
-  margin-top: 3px;
-  color: #8994a5;
-  font-size: 10px;
+  margin-top: 2px;
+  color: var(--asit-muted);
+  font-size: 11px;
 }
 
-/* Section headings */
+/* Sections */
 
 .asit-section {
-  padding: 88px 0;
+  padding: 76px 0;
 }
 
 .asit-section-white {
-  background: #fff;
+  background: var(--asit-surface);
+  border-bottom: 1px solid var(--asit-line);
 }
 
 .asit-section-heading {
   max-width: 620px;
-  margin: 0 auto 44px;
-  text-align: center;
+  margin: 0 0 40px;
 }
 
 .asit-section-kicker {
   display: block;
-  margin-bottom: 13px;
-  color: #3983cf;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 1.8px;
+  margin-bottom: 8px;
+  color: var(--asit-sky);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
   text-transform: uppercase;
 }
 
 .asit-section-heading h2 {
   margin: 0;
-  color: #14213a;
+  color: var(--asit-navy);
   font-family: 'Manrope', sans-serif;
-  font-size: clamp(27px, 3vw, 37px);
+  font-size: clamp(26px, 3vw, 34px);
   font-weight: 800;
-  letter-spacing: -1.5px;
+  letter-spacing: -0.9px;
   line-height: 1.2;
 }
 
 .asit-section-heading p {
-  margin: 15px auto 0;
-  max-width: 520px;
-  color: #78859a;
-  font-size: 13px;
-  line-height: 1.8;
+  margin: 12px 0 0;
+  color: var(--asit-muted);
+  font-size: 14px;
+  line-height: 1.75;
 }
 
-/* Feature cards */
+/* Feature grid */
 
 .asit-feature-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 19px;
+  gap: 16px;
 }
 
 .asit-feature-card {
-  min-height: 220px;
-  padding: 27px;
-  border: 1px solid #e9eef5;
-  border-radius: 17px;
-  background: #fff;
-  box-shadow: 0 5px 17px rgba(25,50,85,.025);
-  transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+  padding: 24px;
+  border: 1px solid var(--asit-line);
+  border-radius: 6px;
+  background: var(--asit-surface);
+  transition: border-color 0.15s ease;
 }
 
 .asit-feature-card:hover {
-  transform: translateY(-5px);
-  border-color: #dce6f2;
-  box-shadow: 0 18px 38px rgba(25,50,85,.075);
+  border-color: var(--asit-sky);
 }
 
 .asit-feature-icon {
-  width: 46px;
-  height: 46px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
-  margin-bottom: 23px;
-  border: 1px solid #e4edf8;
-  border-radius: 14px;
-  color: #247ed8;
-  background: linear-gradient(145deg, #f8fbff, #edf5ff);
-  box-shadow: inset 0 1px 0 #fff;
+  margin-bottom: 16px;
+  border-radius: 6px;
+  color: var(--asit-navy);
+  background: var(--asit-sky-soft);
 }
 
 .asit-feature-card h3 {
-  margin: 0 0 10px;
-  color: #1c2b43;
+  margin: 0 0 8px;
+  color: var(--asit-navy);
   font-size: 15px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .asit-feature-card p {
   margin: 0;
-  color: #7b8799;
-  font-size: 12px;
-  line-height: 1.8;
+  color: var(--asit-muted);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
-/* Access roles */
+/* Role cards */
 
 .asit-role-section {
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(221,237,255,.42), transparent 48%),
-    #f7f9fc;
+  background: var(--asit-page);
+  border-bottom: 1px solid var(--asit-line);
 }
 
 .asit-role-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
+  gap: 16px;
 }
 
 .asit-role-card {
-  padding: 27px;
-  border: 1px solid #e8edf4;
-  border-radius: 17px;
-  background: #fff;
-  box-shadow: 0 5px 20px rgba(25,50,85,.025);
-  transition: transform .25s ease, box-shadow .25s ease;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  border: 1px solid var(--asit-line);
+  border-top: 3px solid var(--asit-navy);
+  border-radius: 6px;
+  background: var(--asit-surface);
 }
 
-.asit-role-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 16px 35px rgba(25,50,85,.07);
+.asit-role-card:nth-child(2) {
+  border-top-color: var(--asit-sky);
+}
+
+.asit-role-card:nth-child(3) {
+  border-top-color: var(--asit-red);
 }
 
 .asit-role-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 25px;
+  margin-bottom: 18px;
 }
 
 .asit-role-icon {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
-  color: #277dd2;
-  background: #f0f6fd;
+  border-radius: 6px;
+  color: var(--asit-navy);
+  background: var(--asit-sky-soft);
 }
 
 .asit-role-number {
-  color: #c1cad7;
+  color: #94A3B8;
   font-family: 'Manrope', sans-serif;
-  font-size: 22px;
-  font-weight: 800;
-}
-
-.asit-role-card h3 {
-  margin: 0 0 9px;
-  color: #1b2a43;
   font-size: 16px;
   font-weight: 800;
 }
 
+.asit-role-card h3 {
+  margin: 0 0 8px;
+  color: var(--asit-navy);
+  font-size: 16px;
+  font-weight: 700;
+}
+
 .asit-role-card p {
-  min-height: 61px;
-  margin: 0 0 19px;
-  color: #7d899b;
-  font-size: 12px;
-  line-height: 1.8;
+  margin: 0 0 18px;
+  color: var(--asit-muted);
+  font-size: 13px;
+  line-height: 1.65;
+  flex: 1;
 }
 
 .asit-role-link {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  color: #2678ca;
-  font-size: 11px;
-  font-weight: 800;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--asit-navy);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.asit-role-link:hover {
+  color: var(--asit-sky);
 }
 
 /* Device section */
 
 .asit-device-section {
-  padding: 78px 0;
-  background: #fff;
+  padding: 72px 0;
+  background: var(--asit-surface);
+  border-bottom: 1px solid var(--asit-line);
 }
 
 .asit-device-layout {
   display: grid;
-  grid-template-columns: .9fr 1.1fr;
+  grid-template-columns: 1fr 1fr;
   align-items: center;
-  gap: 70px;
+  gap: 48px;
 }
 
 .asit-device-copy h2 {
   margin: 0;
-  color: #17253d;
+  color: var(--asit-navy);
   font-family: 'Manrope', sans-serif;
-  font-size: 34px;
+  font-size: 30px;
   line-height: 1.2;
-  letter-spacing: -1.4px;
+  letter-spacing: -0.8px;
 }
 
 .asit-device-copy p {
-  margin: 17px 0 23px;
-  color: #778499;
-  font-size: 13px;
-  line-height: 1.9;
+  margin: 14px 0 20px;
+  color: var(--asit-muted);
+  font-size: 14px;
+  line-height: 1.75;
 }
 
 .asit-device-list {
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 10px;
 }
 
 .asit-device-item {
   display: flex;
   align-items: center;
-  gap: 11px;
-  color: #536178;
-  font-size: 12px;
+  gap: 10px;
+  color: var(--asit-navy);
+  font-size: 13px;
   font-weight: 600;
 }
 
 .asit-device-item svg {
-  color: #1685ff;
+  color: var(--asit-sky);
 }
 
 .asit-device-visual {
-  position: relative;
-  min-height: 255px;
+  min-height: 220px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 19px;
+  gap: 28px;
   padding: 28px;
-  border: 1px solid #e9eef5;
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(220,237,255,.7), transparent 65%),
-    #f8faff;
+  border: 1px solid var(--asit-line);
+  border-radius: 8px;
+  background: var(--asit-page);
 }
 
 .asit-device {
   display: grid;
   place-items: center;
-  color: #4c78a9;
-  filter: drop-shadow(0 10px 9px rgba(29,63,106,.1));
+  color: var(--asit-navy);
 }
 
-.asit-device-desktop {
-  transform: translateY(5px);
+.asit-device:nth-child(2) {
+  color: var(--asit-sky);
 }
 
-.asit-device-tablet {
-  transform: translateY(-8px);
-}
-
-.asit-device-phone {
-  transform: translateY(12px);
-}
-
-/* Help section */
+/* Help panel */
 
 .asit-help-section {
-  padding: 76px 0;
-  background: #f7f9fc;
+  padding: 64px 0;
+  background: var(--asit-page);
 }
 
 .asit-help-panel {
-  position: relative;
-  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 30px;
-  padding: 37px 43px;
-  border: 1px solid #e4ebf4;
-  border-radius: 19px;
-  background: #fff;
-  box-shadow: 0 8px 25px rgba(24,52,90,.035);
-}
-
-.asit-help-panel::after {
-  content: '';
-  position: absolute;
-  top: -100px;
-  right: 12%;
-  width: 240px;
-  height: 240px;
-  border-radius: 50%;
-  background: rgba(22,133,255,.055);
-  filter: blur(30px);
-  pointer-events: none;
-}
-
-.asit-help-copy {
-  position: relative;
-  z-index: 1;
+  gap: 24px;
+  padding: 32px 36px;
+  border: 1px solid var(--asit-line);
+  border-left: 4px solid var(--asit-gold);
+  border-radius: 6px;
+  background: var(--asit-surface);
 }
 
 .asit-help-copy span {
   display: block;
-  margin-bottom: 9px;
-  color: #3983cf;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 1.4px;
+  margin-bottom: 6px;
+  color: var(--asit-sky);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
   text-transform: uppercase;
 }
 
 .asit-help-copy h2 {
   margin: 0;
-  color: #182740;
+  color: var(--asit-navy);
   font-family: 'Manrope', sans-serif;
-  font-size: 25px;
-  letter-spacing: -.8px;
+  font-size: 23px;
+  letter-spacing: -0.5px;
 }
 
 .asit-help-copy p {
-  margin: 9px 0 0;
-  color: #8290a3;
-  font-size: 12px;
+  margin: 6px 0 0;
+  color: var(--asit-muted);
+  font-size: 13px;
 }
 
 /* Footer */
 
 .asit-footer {
-  padding: 28px 0;
-  border-top: 1px solid #e9eef5;
-  background: #fff;
+  padding: 24px 0;
+  border-top: 1px solid var(--asit-line);
+  background: var(--asit-surface);
 }
 
 .asit-footer-inner {
@@ -874,61 +768,62 @@ const styles = `
 }
 
 .asit-footer-brand img {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
 }
 
 .asit-footer-brand strong {
-  color: #34435b;
-  font-size: 11px;
-  font-weight: 800;
+  color: var(--asit-navy);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .asit-footer-note {
-  color: #9aa5b4;
-  font-size: 10px;
+  color: var(--asit-muted);
+  font-size: 11px;
 }
 
-/* Login page wrapper */
+/* Login wrapper */
 
 .asit-login-back {
   min-height: 100vh;
-  padding: 28px;
-  background:
-    radial-gradient(ellipse at 80% 15%, rgba(22,133,255,.09), transparent 38%),
-    #f5f8fc;
+  padding: 24px;
+  background: var(--asit-page);
   font-family: 'DM Sans', sans-serif;
 }
 
 .asit-login-back-header {
   width: min(1100px, 100%);
-  margin: 0 auto 24px;
+  margin: 0 auto 20px;
 }
 
 .asit-back-button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 13px;
-  border: 1px solid #e3eaf3;
-  border-radius: 10px;
-  color: #53647d;
-  background: #fff;
+  padding: 9px 14px;
+  border: 1px solid var(--asit-line);
+  border-radius: 6px;
+  color: var(--asit-navy);
+  background: var(--asit-surface);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
+.asit-back-button:hover {
+  background: var(--asit-page);
+}
+
 .asit-login-content {
   width: min(1100px, 100%);
-  min-height: 560px;
+  min-height: 540px;
   margin: 0 auto;
-  padding: 22px;
-  border: 1px solid #e5ebf3;
-  border-radius: 20px;
-  background: #fff;
-  box-shadow: 0 20px 65px rgba(24,52,90,.08);
+  padding: 24px;
+  border: 1px solid var(--asit-line);
+  border-radius: 8px;
+  background: var(--asit-surface);
 }
 
 /* Responsive */
@@ -938,24 +833,9 @@ const styles = `
     gap: 18px;
   }
 
-  .asit-hero-grid {
-    grid-template-columns: 1fr;
-    gap: 45px;
-  }
-
-  .asit-hero-copy {
-    max-width: 650px;
-  }
-
-  .asit-hero-visual {
-    width: min(720px, 100%);
-    margin: 0 auto;
-    padding-left: 0;
-  }
-
   .asit-device-layout {
     grid-template-columns: 1fr;
-    gap: 35px;
+    gap: 36px;
   }
 
   .asit-feature-grid,
@@ -966,148 +846,56 @@ const styles = `
 
 @media (max-width: 640px) {
   .asit-container {
-    width: min(100% - 32px, 1160px);
+    width: calc(100% - 32px);
   }
 
   .asit-header {
-    height: 70px;
+    height: 68px;
   }
 
-  .asit-nav {
+  .asit-nav,
+  .asit-login-link {
     display: none;
   }
 
-  .asit-brand-name {
-    font-size: 14px;
-  }
-
-  .asit-brand-subtitle {
-    font-size: 8px;
-  }
-
-  .asit-header-actions {
-    gap: 4px;
-  }
-
-  .asit-login-link {
-    padding: 9px;
-    font-size: 11px;
-  }
-
-  .asit-button-small {
-    min-height: 37px;
-    padding: 0 12px;
-    font-size: 11px;
-  }
-
   .asit-hero {
-    padding: 55px 0 65px;
+    padding: 44px 0 40px;
   }
 
   .asit-hero h1 {
-    font-size: 43px;
-    letter-spacing: -2.2px;
+    font-size: 36px;
+    letter-spacing: -1px;
   }
 
-  .asit-hero-description {
-    font-size: 13px;
+  .asit-showcase-band {
+    padding: 28px 0;
   }
 
   .asit-preview-image {
-    min-height: 190px;
+    max-height: 280px;
   }
 
-  .asit-floating-note {
-    left: 8px;
-    bottom: -7px;
-    padding: 10px 12px;
+  .asit-preview-footer,
+  .asit-help-panel,
+  .asit-footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
-  .asit-stats-grid {
-    grid-template-columns: 1fr;
-    gap: 17px;
-  }
-
-  .asit-stat {
-    justify-content: flex-start;
-  }
-
-  .asit-section {
-    padding: 65px 0;
-  }
-
+  .asit-stats-grid,
   .asit-feature-grid,
   .asit-role-grid {
     grid-template-columns: 1fr;
   }
 
-  .asit-feature-card {
-    min-height: auto;
-  }
-
-  .asit-role-card p {
-    min-height: auto;
-  }
-
-  .asit-device-copy h2 {
-    font-size: 29px;
-  }
-
-  .asit-device-visual {
-    min-height: 190px;
-    gap: 10px;
-    padding: 15px;
-  }
-
-  .asit-device-desktop svg {
-    width: 75px;
-  }
-
-  .asit-device-tablet svg {
-    width: 58px;
-  }
-
-  .asit-device-phone svg {
-    width: 35px;
-  }
-
   .asit-help-panel {
-    align-items: flex-start;
-    flex-direction: column;
-    padding: 27px 23px;
-  }
-
-  .asit-help-copy h2 {
-    font-size: 22px;
-  }
-
-  .asit-footer-inner {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .asit-login-back {
-    padding: 14px;
-  }
-
-  .asit-login-content {
-    min-height: 0;
-    padding: 12px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .asit-front-door *,
-  .asit-login-back * {
-    scroll-behavior: auto !important;
-    transition-duration: .01ms !important;
-    animation-duration: .01ms !important;
+    padding: 24px;
   }
 }
 `;
 
 /* -------------------------------------------------------------------------- */
-/*                              PUBLIC LANDING PAGE                            */
+/*                              PUBLIC LANDING PAGE                           */
 /* -------------------------------------------------------------------------- */
 
 function FrontDoor({ onLogin }: { onLogin: () => void }) {
@@ -1121,7 +909,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
             <img
               className="asit-brand-logo"
               src="/asit-logo.png"
-              alt="ASIT logo"
+              alt="Advanced School of Information Technology logo"
               onError={(event) => {
                 event.currentTarget.style.display = 'none';
               }}
@@ -1140,10 +928,14 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
           </nav>
 
           <div className="asit-header-actions">
-            <button className="asit-login-link" onClick={onLogin}>
+            <button type="button" className="asit-login-link" onClick={onLogin}>
               Sign in
             </button>
-            <button className="asit-primary-button asit-button-small" onClick={onLogin}>
+            <button
+              type="button"
+              className="asit-primary-button asit-button-small"
+              onClick={onLogin}
+            >
               Access Library <ArrowRight size={14} />
             </button>
           </div>
@@ -1151,10 +943,10 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
       </header>
 
       <section className="asit-hero" id="home">
-        <div className="asit-container asit-hero-grid">
-          <div className="asit-hero-copy">
+        <div className="asit-container">
+          <div className="asit-hero-inner">
             <div className="asit-eyebrow">
-              <span className="asit-eyebrow-dot" />
+              <LockKeyhole size={12} />
               Academic resources, organised
             </div>
 
@@ -1171,7 +963,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
             </p>
 
             <div className="asit-hero-actions">
-              <button className="asit-primary-button" onClick={onLogin}>
+              <button type="button" className="asit-primary-button" onClick={onLogin}>
                 Enter the Library <ArrowRight size={16} />
               </button>
 
@@ -1185,43 +977,36 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
               <span>Organised academic resources for the ASIT community</span>
             </div>
           </div>
+        </div>
+      </section>
 
-          <div className="asit-hero-visual">
-            <div className="asit-visual-glow" />
-
-            <div className="asit-preview-window">
-              <div className="asit-preview-topbar">
-                <div className="asit-preview-dots">
-                  <i />
-                  <i />
-                  <i />
-                </div>
-                <span className="asit-preview-label">ASIT Digital Library</span>
-                <span style={{ width: 30 }} />
+      <section className="asit-showcase-band" aria-label="Library display preview">
+        <div className="asit-container">
+          <div className="asit-preview-window">
+            <div className="asit-preview-topbar">
+              <div className="asit-preview-dots">
+                <i />
+                <i />
+                <i />
               </div>
-
-              <div className="asit-preview-image-wrap">
-                <img
-                  className="asit-preview-image"
-                  src="/asit-elibrary-content-display.png"
-                  alt="Preview of the ASIT eLibrary interface"
-                />
-
-                <div className="asit-preview-caption">
-                  <BookOpen size={14} />
-                  Digital learning resources
-                </div>
-              </div>
+              <span className="asit-preview-label">ASIT Digital Library Preview</span>
+              <span style={{ width: 32 }} />
             </div>
 
-            <div className="asit-floating-note">
-              <div className="asit-floating-icon">
-                <CloudDownload size={19} />
-              </div>
-              <div>
-                <strong>Resources in one place</strong>
-                <span>Find and access learning materials</span>
-              </div>
+            <div className="asit-preview-image-wrap">
+              <img
+                className="asit-preview-image"
+                src="/asit-elibrary-content-display.png"
+                alt="Preview of the ASIT eLibrary interface"
+              />
+            </div>
+
+            <div className="asit-preview-footer">
+              <strong>
+                <BookOpen size={15} />
+                Digital learning resources in one place
+              </strong>
+              <span>Browse, preview and download course documents from a single workspace</span>
             </div>
           </div>
         </div>
@@ -1230,7 +1015,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
       <section className="asit-stats" aria-label="Platform highlights">
         <div className="asit-container asit-stats-grid">
           <div className="asit-stat">
-            <div className="asit-stat-icon"><Library size={19} /></div>
+            <div className="asit-stat-icon"><Library size={18} /></div>
             <div>
               <strong>Centralised library</strong>
               <span>Learning resources in one location</span>
@@ -1238,7 +1023,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
           </div>
 
           <div className="asit-stat">
-            <div className="asit-stat-icon"><Users size={19} /></div>
+            <div className="asit-stat-icon"><Users size={18} /></div>
             <div>
               <strong>Role-based access</strong>
               <span>Access designed around your role</span>
@@ -1246,7 +1031,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
           </div>
 
           <div className="asit-stat">
-            <div className="asit-stat-icon"><ShieldCheck size={19} /></div>
+            <div className="asit-stat-icon"><ShieldCheck size={18} /></div>
             <div>
               <strong>Managed resources</strong>
               <span>Structured and controlled access</span>
@@ -1268,7 +1053,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
 
           <div className="asit-feature-grid">
             <article className="asit-feature-card">
-              <div className="asit-feature-icon"><Search size={21} /></div>
+              <div className="asit-feature-icon"><Search size={20} /></div>
               <h3>Find resources easily</h3>
               <p>
                 Browse learning materials in an organised library and locate
@@ -1277,7 +1062,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
             </article>
 
             <article className="asit-feature-card">
-              <div className="asit-feature-icon"><FileText size={21} /></div>
+              <div className="asit-feature-icon"><FileText size={20} /></div>
               <h3>Access learning documents</h3>
               <p>
                 View available course materials and supporting documents from
@@ -1286,7 +1071,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
             </article>
 
             <article className="asit-feature-card">
-              <div className="asit-feature-icon"><CloudDownload size={21} /></div>
+              <div className="asit-feature-icon"><CloudDownload size={20} /></div>
               <h3>Download materials</h3>
               <p>
                 Access permitted learning resources and keep the documents
@@ -1295,7 +1080,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
             </article>
 
             <article className="asit-feature-card">
-              <div className="asit-feature-icon"><GraduationCap size={21} /></div>
+              <div className="asit-feature-icon"><GraduationCap size={20} /></div>
               <h3>Course-focused content</h3>
               <p>
                 Resources are arranged to make relevant academic materials
@@ -1304,7 +1089,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
             </article>
 
             <article className="asit-feature-card">
-              <div className="asit-feature-icon"><LockKeyhole size={21} /></div>
+              <div className="asit-feature-icon"><LockKeyhole size={20} /></div>
               <h3>Controlled access</h3>
               <p>
                 User access is managed according to assigned roles and
@@ -1313,11 +1098,11 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
             </article>
 
             <article className="asit-feature-card">
-              <div className="asit-feature-icon"><CheckCircle2 size={21} /></div>
+              <div className="asit-feature-icon"><CheckCircle2 size={20} /></div>
               <h3>Managed repository</h3>
               <p>
                 A more consistent way for authorised staff to manage and
-                maintain the institution's learning resources.
+                maintain the institution&apos;s learning resources.
               </p>
             </article>
           </div>
@@ -1338,7 +1123,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
           <div className="asit-role-grid">
             <article className="asit-role-card">
               <div className="asit-role-top">
-                <div className="asit-role-icon"><GraduationCap size={23} /></div>
+                <div className="asit-role-icon"><GraduationCap size={21} /></div>
                 <span className="asit-role-number">01</span>
               </div>
               <h3>Students</h3>
@@ -1346,14 +1131,14 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
                 Discover course-related learning materials, preview documents
                 and access resources made available for your studies.
               </p>
-              <button className="asit-role-link" onClick={onLogin}>
+              <button type="button" className="asit-role-link" onClick={onLogin}>
                 Student access <ArrowUpRight size={14} />
               </button>
             </article>
 
             <article className="asit-role-card">
               <div className="asit-role-top">
-                <div className="asit-role-icon"><Users size={23} /></div>
+                <div className="asit-role-icon"><Users size={21} /></div>
                 <span className="asit-role-number">02</span>
               </div>
               <h3>Instructors</h3>
@@ -1361,14 +1146,14 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
                 Access instructor tools and manage learning resources
                 associated with your assigned academic responsibilities.
               </p>
-              <button className="asit-role-link" onClick={onLogin}>
+              <button type="button" className="asit-role-link" onClick={onLogin}>
                 Instructor access <ArrowUpRight size={14} />
               </button>
             </article>
 
             <article className="asit-role-card">
               <div className="asit-role-top">
-                <div className="asit-role-icon"><ShieldCheck size={23} /></div>
+                <div className="asit-role-icon"><ShieldCheck size={21} /></div>
                 <span className="asit-role-number">03</span>
               </div>
               <h3>Administrators</h3>
@@ -1376,7 +1161,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
                 Manage the repository, oversee resources and maintain the
                 platform through administrative tools.
               </p>
-              <button className="asit-role-link" onClick={onLogin}>
+              <button type="button" className="asit-role-link" onClick={onLogin}>
                 Administrator access <ArrowUpRight size={14} />
               </button>
             </article>
@@ -1409,14 +1194,14 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
           </div>
 
           <div className="asit-device-visual" aria-label="Supported devices">
-            <div className="asit-device asit-device-desktop">
-              <Monitor size={112} strokeWidth={1.15} />
+            <div className="asit-device">
+              <Monitor size={96} strokeWidth={1.35} />
             </div>
-            <div className="asit-device asit-device-tablet">
-              <Tablet size={78} strokeWidth={1.25} />
+            <div className="asit-device">
+              <Tablet size={68} strokeWidth={1.35} />
             </div>
-            <div className="asit-device asit-device-phone">
-              <Smartphone size={47} strokeWidth={1.35} />
+            <div className="asit-device">
+              <Smartphone size={44} strokeWidth={1.4} />
             </div>
           </div>
         </div>
@@ -1431,7 +1216,7 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
               <p>Sign in using your institution-provided account to continue.</p>
             </div>
 
-            <button className="asit-primary-button" onClick={onLogin}>
+            <button type="button" className="asit-primary-button" onClick={onLogin}>
               Sign in to the Library <ArrowRight size={16} />
             </button>
           </div>
@@ -1480,6 +1265,7 @@ function MainPortal() {
 
         <div className="asit-login-back-header">
           <button
+            type="button"
             className="asit-back-button"
             onClick={() => setShowLogin(false)}
           >
