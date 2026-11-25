@@ -1,10 +1,15 @@
 // app/api/documents/route.ts
+import path from 'path';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getStorageProvider } from '@/lib/storage';
+import { getStorageProvider, uploadCoverPngToCloud } from '@/lib/storage';
 import { getAccessContext } from '@/lib/document-access';
+import { renderFirstPagePngBuffer } from '@/lib/pdf-cover';
 
 const MAX_PDF_SIZE_BYTES = 255 * 1024 * 1024; // 255 MB
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24 hours
+
+
 
 function isPdfFile(file: File): boolean {
   const hasPdfMime = file.type === 'application/pdf';
@@ -43,6 +48,9 @@ function parseStringList(entry: FormDataEntryValue | null): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 }
+
+
+
 
 async function resolveProgramIds(names: string[]): Promise<string[]> {
   const uniqueByLower = new Map<string, string>();
@@ -223,7 +231,10 @@ export async function GET(req: Request) {
       ...doc,
       category: doc.category?.name ?? null,
       categoryId: doc.categoryId,
-      signedUrl: storage.createSignedUrl(doc.path, 300),
+      signedUrl: storage.createSignedUrl(doc.path, SIGNED_URL_TTL_SECONDS),
+      coverUrl: doc.coverPath
+        ? storage.createSignedUrl(doc.coverPath, SIGNED_URL_TTL_SECONDS)
+        : null,
     }));
 
     return NextResponse.json({
@@ -275,7 +286,7 @@ export async function POST(req: Request) {
 
     if (fileEntry.size > MAX_PDF_SIZE_BYTES) {
       return NextResponse.json(
-        { ok: false, error: 'PDF exceeds the 25 MB upload limit.' },
+        { ok: false, error: 'PDF exceeds the upload size limit.' },
         { status: 400 }
       );
     }
@@ -349,7 +360,7 @@ export async function POST(req: Request) {
       folder: 'library',
     });
 
-    const document = await prisma.document.create({
+    const createdDoc = await prisma.document.create({
       data: {
         name: displayName,
         title: displayName,
@@ -382,15 +393,51 @@ export async function POST(req: Request) {
       },
     });
 
-    const signedUrl = storage.createSignedUrl(document.path, 300);
+    // Non-blocking cloud cover generation from PDF page 1
+    let finalDoc = createdDoc;
+    try {
+      const pngBuffer = await renderFirstPagePngBuffer(buffer);
+      if (pngBuffer) {
+        const cloudCoverKey = await uploadCoverPngToCloud(createdDoc.id, pngBuffer);
+        if (cloudCoverKey) {
+          finalDoc = await prisma.document.update({
+            where: { id: createdDoc.id },
+            data: {
+              coverPath: cloudCoverKey,
+              coverGeneratedAt: new Date(),
+            },
+            include: {
+              category: true,
+              programs: {
+                orderBy: { name: 'asc' },
+              },
+              tags: {
+                orderBy: { name: 'asc' },
+              },
+              uploadedBy: {
+                select: { id: true, fullName: true, email: true },
+              },
+            },
+          });
+        }
+      }
+    } catch (coverErr) {
+      console.error('[POST /api/documents] Cover generation skipped:', coverErr);
+    }
+
+    const signedUrl = storage.createSignedUrl(finalDoc.path, SIGNED_URL_TTL_SECONDS);
+    const coverUrl = finalDoc.coverPath
+      ? storage.createSignedUrl(finalDoc.coverPath, SIGNED_URL_TTL_SECONDS)
+      : null;
 
     return NextResponse.json(
       {
         ok: true,
         document: {
-          ...document,
-          category: document.category?.name ?? null,
+          ...finalDoc,
+          category: finalDoc.category?.name ?? null,
           signedUrl,
+          coverUrl,
         },
       },
       { status: 201 }

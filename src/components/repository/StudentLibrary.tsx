@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
   fetchAuthorizedDocumentBlobUrl,
@@ -151,37 +151,6 @@ function getRelatedOpenLibraryBooks(
     .slice(0, 4);
 }
 
-async function resolveThumbnailSource(
-  doc: OpenLibraryDocumentRecord
-): Promise<string | null> {
-  const streamUrl =
-    doc.signedUrl || `/api/documents/${encodeURIComponent(doc.id)}/file`;
-
-  if (streamUrl.startsWith('blob:')) {
-    return streamUrl;
-  }
-
-  try {
-    const fetched = await fetchAuthorizedDocumentBlobUrl(streamUrl);
-
-    if (fetched.ok && fetched.blobUrl) {
-      return fetched.blobUrl;
-    }
-
-    console.error(
-      `[StudentLibrary] Could not fetch thumbnail PDF for ${doc.name}:`,
-      fetched.error
-    );
-  } catch (error) {
-    console.error(
-      `[StudentLibrary] Thumbnail source error for ${doc.name}:`,
-      error
-    );
-  }
-
-  return null;
-}
-
 export const StudentLibrary: React.FC<Props> = ({
   onSearch,
   onLogout,
@@ -191,11 +160,8 @@ export const StudentLibrary: React.FC<Props> = ({
 
   const [dbCategories, setDbCategories] = useState<string[]>([]);
   const [documents, setDocuments] = useState<OpenLibraryDocumentRecord[]>([]);
-  const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-
-  const thumbnailBlobUrls = useRef<Set<string>>(new Set());
 
   const [showSettings, setShowSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -214,16 +180,6 @@ export const StudentLibrary: React.FC<Props> = ({
   );
   const [previewLoadingDocId, setPreviewLoadingDocId] = useState<string | null>(null);
   const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      thumbnailBlobUrls.current.forEach((url) => {
-        URL.revokeObjectURL(url);
-      });
-
-      thumbnailBlobUrls.current.clear();
-    };
-  }, []);
 
   const closePreviewModal = useCallback(() => {
     setPreviewLoadingDocId(null);
@@ -288,49 +244,6 @@ export const StudentLibrary: React.FC<Props> = ({
   useEffect(() => {
     void loadOpenLibraryData({ showSpinner: !hasLoadedOnce });
   }, [currentUser?.id, loadOpenLibraryData, hasLoadedOnce]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const pdfDocs = documents.filter((doc) => {
-      return (
-        doc.mimeType === 'application/pdf' ||
-        doc.filename.toLowerCase().endsWith('.pdf')
-      );
-    });
-
-    async function resolveAllThumbnails() {
-      for (const doc of pdfDocs) {
-        if (cancelled) break;
-
-        const resolved = await resolveThumbnailSource(doc);
-
-        if (cancelled) {
-          if (resolved?.startsWith('blob:')) {
-            URL.revokeObjectURL(resolved);
-          }
-          break;
-        }
-
-        if (resolved) {
-          if (resolved.startsWith('blob:')) {
-            thumbnailBlobUrls.current.add(resolved);
-          }
-
-          setThumbUrls((prev) => ({
-            ...prev,
-            [doc.id]: resolved,
-          }));
-        }
-      }
-    }
-
-    void resolveAllThumbnails();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [documents]);
 
   const categoryOptions = useMemo(() => {
     const merged = new Map<string, string>();
@@ -968,7 +881,7 @@ export const StudentLibrary: React.FC<Props> = ({
                             }}
                           >
                             <PdfThumbnail
-                              fileUrl={thumbUrls[book.id] || null}
+                              coverUrl={book.coverUrl}
                               title={book.name}
                               department={book.category || 'Open Library'}
                             />

@@ -21,11 +21,13 @@ export interface StorageProvider {
   uploadPdf(input: UploadFileInput): Promise<UploadFileResult>;
   getLocalFilePath?(storageKey: string): string;
   readFile(storageKey: string): Promise<Buffer>;
+  writeFile?(storageKey: string, data: Buffer): Promise<void>;
   deleteFile?(storageKey: string): Promise<void>;
   createSignedUrl(storageKey: string, expiresInSeconds?: number): string;
 }
 
 const LOCAL_ROOT = path.join(process.cwd(), 'storage', 'uploads');
+const DEFAULT_SIGNED_URL_TTL = 60 * 60 * 24; // 24 hours
 
 function getSigningSecret(): string {
   return (
@@ -82,6 +84,58 @@ export function verifyStorageSignature(token: string): {
   }
 }
 
+let sharedCoverUtapi: UTApi | null = null;
+
+function getCoverUtapiClient(): UTApi {
+  if (!sharedCoverUtapi) {
+    sharedCoverUtapi = new UTApi();
+  }
+  return sharedCoverUtapi;
+}
+
+export async function readCoverPngFromCloud(key: string): Promise<Buffer> {
+  const { ufsUrl } = await getCoverUtapiClient().generateSignedURL(key);
+  const res = await fetch(ufsUrl);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch cover from UploadThing (${res.status}).`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
+export async function uploadCoverPngToCloud(
+  docId: string,
+  pngBuffer: Buffer
+): Promise<string | null> {
+  try {
+    if (!pngBuffer || pngBuffer.byteLength === 0) {
+      console.warn('[uploadCoverPngToCloud] Empty PNG buffer for doc:', docId);
+      return null;
+    }
+
+    const utapi = getCoverUtapiClient();
+    const safeId = docId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const file = new File([new Uint8Array(pngBuffer)], `cover-${safeId}.png`, {
+      type: 'image/png',
+    });
+
+    const response = await utapi.uploadFiles([file]);
+    const uploaded = Array.isArray(response) ? response[0] : response;
+
+    if (!uploaded || uploaded.error || !uploaded.data?.key) {
+      console.error(
+        '[uploadCoverPngToCloud] UploadThing rejected cover:',
+        uploaded?.error || response
+      );
+      return null;
+    }
+
+    return uploaded.data.key;
+  } catch (err) {
+    console.error('[uploadCoverPngToCloud] Failed to upload cover:', err);
+    return null;
+  }
+}
+
 export class LocalStorageProvider implements StorageProvider {
   getLocalFilePath(storageKey: string): string {
     const normalized = path.normalize(storageKey).replace(/^(\.\.[/\\])+/, '');
@@ -118,11 +172,17 @@ export class LocalStorageProvider implements StorageProvider {
     return readFile(fullPath);
   }
 
-createSignedUrl(storageKey: string, expiresInSeconds = 60 * 60 * 24): string {
-  const exp = Date.now() + expiresInSeconds * 1000;
-  const token = signStoragePayload({ key: storageKey, exp });
-  return `/api/documents/file?token=${encodeURIComponent(token)}`;
-}
+  createSignedUrl(storageKey: string, expiresInSeconds = DEFAULT_SIGNED_URL_TTL): string {
+    const exp = Date.now() + expiresInSeconds * 1000;
+    const token = signStoragePayload({ key: storageKey, exp });
+    return `/api/documents/file?token=${encodeURIComponent(token)}`;
+  }
+
+  async writeFile(storageKey: string, data: Buffer): Promise<void> {
+    const fullPath = this.getLocalFilePath(storageKey);
+    await mkdir(path.dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, data);
+  }
 }
 
 export class UploadThingStorageProvider implements StorageProvider {
@@ -175,7 +235,21 @@ export class UploadThingStorageProvider implements StorageProvider {
     await this.getClient().deleteFiles(storageKey);
   }
 
-  createSignedUrl(storageKey: string, expiresInSeconds = 300): string {
+  async writeFile(storageKey: string, data: Buffer): Promise<void> {
+    const safeName = storageKey.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const pngFile = new File([new Uint8Array(data)], safeName, {
+      type: 'image/png',
+    });
+    const response = await this.getClient().uploadFiles([pngFile]);
+    const uploaded = Array.isArray(response) ? response[0] : response;
+    if (!uploaded || uploaded.error || !uploaded.data?.key) {
+      throw new Error(
+        uploaded?.error?.message || 'UploadThing failed to upload cover image.'
+      );
+    }
+  }
+
+  createSignedUrl(storageKey: string, expiresInSeconds = DEFAULT_SIGNED_URL_TTL): string {
     const exp = Date.now() + expiresInSeconds * 1000;
     const token = signStoragePayload({ key: storageKey, exp });
     return `/api/documents/file?token=${encodeURIComponent(token)}`;

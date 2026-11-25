@@ -5,33 +5,38 @@ import { FileText } from 'lucide-react';
 
 export interface PdfThumbnailProps {
   fileUrl?: string | null;
+  coverUrl?: string | null;
   title: string;
   department?: string;
   className?: string;
 }
 
 export default function PdfThumbnail({
-  fileUrl,
+  coverUrl,
   title,
   department = 'Course Material',
   className = '',
 }: PdfThumbnailProps) {
-  const [failed, setFailed] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
 
   useEffect(() => {
-    setFailed(false);
-  }, [fileUrl]);
+    setImgFailed(false);
+  }, [coverUrl]);
 
-  if (!fileUrl || failed) {
+  if (!coverUrl || imgFailed) {
     return (
       <div
-        className={`flex h-full w-full flex-col justify-between bg-slate-900 p-3 text-white ${className}`}
+        className={`flex h-full w-full flex-col justify-between bg-slate-900 p-3 text-white select-none ${className}`}
       >
         <div className="flex items-start justify-between gap-2">
           <span className="truncate text-[11px] font-medium text-slate-300">
             {department || 'Course Material'}
           </span>
-          <FileText size={16} className="shrink-0 text-slate-300" aria-hidden="true" />
+          <FileText
+            size={16}
+            className="shrink-0 text-slate-300"
+            aria-hidden="true"
+          />
         </div>
 
         <div className="line-clamp-4 text-xs font-semibold leading-snug">
@@ -43,28 +48,30 @@ export default function PdfThumbnail({
     );
   }
 
-  const singlePageUrl = `${fileUrl}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=Fit`;
-
   return (
     <div
-      className={`relative h-full w-full overflow-hidden bg-white select-none ${className}`}
+      style={{
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#FFFFFF',
+        padding: '0px',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
+      }}
+      className={`select-none ${className}`}
     >
-      <iframe
-        key={singlePageUrl}
-        src={singlePageUrl}
-        title={`${title} - First Page`}
-        onError={() => setFailed(true)}
-        scrolling="no"
-        tabIndex={-1}
+      <img
+        src={coverUrl}
+        alt={`${title} - Cover`}
+        loading="lazy"
+        decoding="async"
+        onError={() => setImgFailed(true)}
         style={{
-          position: 'absolute',
-          top: '-4%',
-          left: '-4%',
-          width: '122%',
-          height: '155%',
-          border: 'none',
-          pointerEvents: 'none',
-          backgroundColor: '#FFFFFF',
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          objectPosition: 'top center',
+          display: 'block',
         }}
       />
     </div>

@@ -12,6 +12,7 @@
     "seed": "ts-node --transpile-only -O \"{\\\"module\\\":\\\"CommonJS\\\"}\" prisma/seed.ts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.100",
     "@prisma/client": "^6.2.1",
     "@uploadthing/react": "^7.3.3",
     "bcryptjs": "^3.0.3",
