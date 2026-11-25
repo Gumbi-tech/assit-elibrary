@@ -36,6 +36,7 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
 
 # Copy standalone server, static assets, and Prisma files
 COPY --from=builder --chown=appuser:appgroup /app/.next/standalone ./
+COPY --from=builder --chown=appuser:appgroup /app/public ./public
 COPY --from=builder --chown=appuser:appgroup /app/.next/static ./.next/static
 COPY --from=builder --chown=appuser:appgroup /app/prisma ./prisma
 
