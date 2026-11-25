@@ -10,6 +10,7 @@ RUN npm ci --quiet
 COPY prisma ./prisma/
 COPY tsconfig.json ./
 COPY next.config.js ./
+COPY public ./public/
 COPY src ./src/
 # Uncomment or adjust if these folders exist at the project root instead of inside src/:
 # COPY context ./context/
