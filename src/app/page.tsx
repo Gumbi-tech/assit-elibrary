@@ -3,20 +3,17 @@
 import { useState } from 'react';
 import {
   ArrowRight,
-  ArrowUpRight,
-  BookOpen,
-  CheckCircle2,
-  ChevronRight,
-  CloudDownload,
-  FileText,
+  BookMarked,
+  Bookmark,
+  Download,
   GraduationCap,
+  HelpCircle,
+  Laptop,
   Library,
   LockKeyhole,
-  Monitor,
-  Search,
+  Mail,
+  Phone,
   ShieldCheck,
-  Smartphone,
-  Tablet,
   Users,
   X,
 } from 'lucide-react';
@@ -32,69 +29,59 @@ import RepositoryFooter from '@/components/repository/RepositoryFooter';
 import { ForceChangePasswordModal } from '@/components/repository/ForceChangePasswordModal';
 
 /* -------------------------------------------------------------------------- */
-/*                         ASIT LOGO BRAND PALETTE & STYLES                   */
+/*                         LOCAL DESIGN SYSTEM                                */
 /* -------------------------------------------------------------------------- */
 
 const styles = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap');
-
-.asit-front-door,
-.asit-front-door *,
-.asit-login-back,
-.asit-login-back * {
+.asit-library-page,
+.asit-library-page *,
+.asit-login-page,
+.asit-login-page * {
   box-sizing: border-box;
 }
 
-.asit-front-door {
-  --asit-navy: #083358;
-  --asit-navy-deep: #05223B;
-  --asit-sky: #0095DA;
-  --asit-sky-soft: #E8F6FD;
-  --asit-gold: #F5C400;
-  --asit-red: #D92B2B;
-  --asit-ink: #122235;
-  --asit-muted: #5A6B7F;
-  --asit-line: #DCE4EE;
-  --asit-surface: #FFFFFF;
-  --asit-page: #F4F7FA;
+.asit-library-page {
+  --college-navy: #0F294A;
+  --college-navy-light: #18395f;
+  --college-blue: #2678C8;
+  --college-blue-soft: #EAF3FC;
+  --college-text: #26364B;
+  --college-muted: #718096;
+  --college-line: #E5EAF0;
+  --college-background: #F7F9FC;
+  --college-white: #FFFFFF;
 
   min-height: 100vh;
-  color: var(--asit-ink);
-  background: var(--asit-page);
-  font-family: 'DM Sans', sans-serif;
+  color: var(--college-text);
+  background: var(--college-background);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
-.asit-front-door button,
-.asit-login-back button {
-  font: inherit;
+.asit-library-page button,
+.asit-login-page button {
+  font-family: inherit;
 }
 
-.asit-front-door a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.asit-front-door button:focus-visible,
-.asit-front-door a:focus-visible,
-.asit-login-back button:focus-visible {
-  outline: 2px solid var(--asit-sky);
-  outline-offset: 2px;
+.asit-library-page button:focus-visible,
+.asit-library-page a:focus-visible,
+.asit-login-page button:focus-visible {
+  outline: 3px solid var(--college-blue);
+  outline-offset: 3px;
 }
 
 .asit-container {
-  width: min(1160px, calc(100% - 48px));
+  width: min(1120px, calc(100% - 48px));
   margin: 0 auto;
 }
 
 /* Header */
 
 .asit-header {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  height: 78px;
-  background: var(--asit-surface);
-  border-bottom: 1px solid var(--asit-line);
+  height: 76px;
+  background: var(--college-white);
+  border-bottom: 1px solid var(--college-line);
 }
 
 .asit-header-inner {
@@ -102,656 +89,524 @@ const styles = `
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
 }
 
 .asit-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 13px;
+  min-width: 0;
 }
 
 .asit-brand-logo {
-  width: 42px;
-  height: 42px;
+  width: 43px;
+  height: 43px;
   object-fit: contain;
-  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.asit-brand-mark {
+  width: 43px;
+  height: 43px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: white;
+  background: var(--college-navy);
+  border-radius: 8px;
 }
 
 .asit-brand-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  min-width: 0;
 }
 
 .asit-brand-name {
-  font-family: 'Manrope', sans-serif;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: -0.4px;
-  color: var(--asit-navy);
-}
-
-.asit-brand-subtitle {
-  font-size: 10px;
+  display: block;
+  color: var(--college-navy);
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 1.3px;
-  color: var(--asit-muted);
-  text-transform: uppercase;
+  letter-spacing: -.3px;
 }
 
-.asit-nav {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-}
-
-.asit-nav a {
-  font-size: 13px;
+.asit-brand-description {
+  display: block;
+  margin-top: 4px;
+  color: #8490A0;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--asit-muted);
-  padding: 4px 0;
-  border-bottom: 2px solid transparent;
-  transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.asit-nav a:hover {
-  color: var(--asit-navy);
-  border-bottom-color: var(--asit-sky);
+  letter-spacing: .8px;
+  text-transform: uppercase;
 }
 
 .asit-header-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 20px;
 }
 
-.asit-login-link {
-  padding: 9px 14px;
+.asit-help-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 0;
+  color: #637188;
   border: 0;
-  border-radius: 6px;
   background: transparent;
-  color: var(--asit-navy);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.asit-login-link:hover {
-  background: var(--asit-page);
-}
-
-.asit-primary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 20px;
-  border: 1px solid var(--asit-navy);
-  border-radius: 6px;
-  color: #FFFFFF;
-  background: var(--asit-navy);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-
-.asit-primary-button:hover {
-  background: var(--asit-navy-deep);
-  border-color: var(--asit-navy-deep);
-}
-
-.asit-button-small {
-  min-height: 38px;
-  padding: 0 15px;
   font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
 }
 
-.asit-secondary-button {
+.asit-help-link:hover {
+  color: var(--college-navy);
+}
+
+/* Buttons */
+
+.asit-signin-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 18px;
-  border: 1px solid var(--asit-line);
+  gap: 10px;
+  min-height: 43px;
+  padding: 0 19px;
+  color: #FFFFFF;
+  background: var(--college-blue);
+  border: 1px solid var(--college-blue);
   border-radius: 6px;
-  color: var(--asit-navy);
-  background: var(--asit-surface);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition: background .18s ease, border-color .18s ease;
 }
 
-.asit-secondary-button:hover {
-  border-color: var(--asit-sky);
-  background: var(--asit-sky-soft);
+.asit-signin-button:hover {
+  background: #1B67AD;
+  border-color: #1B67AD;
 }
 
-/* Hero (Single-column focused header block) */
+.asit-signin-button:active {
+  background: #165994;
+}
+
+.asit-signin-button svg {
+  flex-shrink: 0;
+}
+
+.asit-signin-button-large {
+  min-height: 47px;
+  padding: 0 22px;
+}
+
+/* Hero */
 
 .asit-hero {
-  padding: 64px 0 52px;
-  background: var(--asit-surface);
-  border-bottom: 1px solid var(--asit-line);
+  padding: 66px 0 69px;
+  background: var(--college-white);
 }
 
-.asit-hero-inner {
-  max-width: 720px;
+.asit-hero-layout {
+  display: grid;
+  grid-template-columns: .9fr 1.1fr;
+  align-items: center;
+  gap: 58px;
 }
 
-.asit-eyebrow {
+.asit-hero-copy {
+  max-width: 490px;
+}
+
+.asit-members-label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 10px;
-  margin-bottom: 20px;
-  border: 1px solid #C5E8FA;
-  border-left: 3px solid var(--asit-red);
-  border-radius: 4px;
-  background: var(--asit-sky-soft);
-  color: var(--asit-navy);
-  font-size: 11px;
+  margin-bottom: 21px;
+  color: var(--college-blue);
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.9px;
+  letter-spacing: 1.15px;
   text-transform: uppercase;
 }
 
-.asit-hero h1 {
-  margin: 0;
-  font-family: 'Manrope', sans-serif;
-  font-size: clamp(38px, 4.8vw, 56px);
-  line-height: 1.1;
-  letter-spacing: -1.6px;
-  font-weight: 800;
-  color: var(--asit-navy);
+.asit-members-label svg {
+  color: var(--college-blue);
 }
 
-.asit-hero h1 span {
-  color: var(--asit-sky);
+.asit-hero-title {
+  margin: 0;
+  color: var(--college-navy);
+  font-size: clamp(35px, 4.3vw, 49px);
+  font-weight: 700;
+  letter-spacing: -1.8px;
+  line-height: 1.16;
+}
+
+.asit-hero-title span {
+  color: var(--college-blue);
 }
 
 .asit-hero-description {
-  max-width: 580px;
+  max-width: 430px;
   margin: 20px 0 26px;
-  color: var(--asit-muted);
-  font-size: 15px;
-  line-height: 1.75;
+  color: var(--college-muted);
+  font-size: 14px;
+  line-height: 1.85;
 }
 
 .asit-hero-actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 17px;
 }
 
-.asit-trust-line {
-  display: flex;
+.asit-access-link {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 24px;
-  color: var(--asit-muted);
+  gap: 6px;
+  padding: 9px 0;
+  color: var(--college-navy);
+  background: transparent;
+  border: 0;
   font-size: 12px;
   font-weight: 600;
+  cursor: pointer;
 }
 
-.asit-trust-line svg {
-  color: var(--asit-sky);
+.asit-access-link:hover {
+  color: var(--college-blue);
+}
+
+.asit-members-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 29px;
+  color: #8793A3;
+  font-size: 11px;
+}
+
+.asit-members-note svg {
+  color: #6483A5;
   flex-shrink: 0;
 }
 
-/* Repositioned Display Showcase Band (below hero) */
+/* Access help */
 
-.asit-showcase-band {
-  padding: 44px 0;
-  background: var(--asit-page);
-  border-bottom: 1px solid var(--asit-line);
+.asit-access-note {
+  max-width: 390px;
+  margin-top: 17px;
+  padding: 15px 17px;
+  border: 1px solid #DCE6F0;
+  border-radius: 7px;
+  background: #F8FAFD;
 }
 
-.asit-preview-window {
-  overflow: hidden;
-  border: 1px solid var(--asit-line);
-  border-top: 3px solid var(--asit-gold);
-  border-radius: 8px;
-  background: var(--asit-surface);
-}
-
-.asit-preview-topbar {
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--asit-line);
-  background: var(--asit-surface);
-}
-
-.asit-preview-dots {
-  display: flex;
-  gap: 6px;
-}
-
-.asit-preview-dots i:nth-child(1) {
+.asit-access-note strong {
   display: block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--asit-red);
-}
-
-.asit-preview-dots i:nth-child(2) {
-  display: block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--asit-gold);
-}
-
-.asit-preview-dots i:nth-child(3) {
-  display: block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--asit-sky);
-}
-
-.asit-preview-label {
-  color: var(--asit-navy);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.9px;
-  text-transform: uppercase;
-}
-
-.asit-preview-image-wrap {
-  background: #EDF2F7;
-}
-
-.asit-preview-image {
-  display: block;
-  width: 100%;
-  max-height: 460px;
-  object-fit: cover;
-  object-position: top center;
-}
-
-.asit-preview-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 18px;
-  border-top: 1px solid var(--asit-line);
-  background: var(--asit-surface);
-}
-
-.asit-preview-footer strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--asit-navy);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.asit-preview-footer strong svg {
-  color: var(--asit-sky);
-}
-
-.asit-preview-footer span {
-  color: var(--asit-muted);
+  margin-bottom: 6px;
+  color: var(--college-navy);
   font-size: 12px;
 }
 
-/* Stats */
-
-.asit-stats {
-  padding: 28px 0;
-  border-bottom: 1px solid var(--asit-line);
-  background: var(--asit-surface);
+.asit-access-note p {
+  margin: 0;
+  color: var(--college-muted);
+  font-size: 11px;
+  line-height: 1.75;
 }
 
-.asit-stats-grid {
+/* Landing page banner image */
+
+.asit-bookshelf-area {
+  min-width: 0;
+  width: 100%;
+  padding: 12px 0;
+}
+
+.asit-shelf-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.asit-shelf-heading span:first-child {
+  color: var(--college-navy);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.asit-shelf-heading span:last-child {
+  color: #8B97A7;
+  font-size: 10px;
+  text-align: right;
+}
+
+.asit-banner-preview {
+  overflow: hidden;
+  width: 100%;
+  border: 1px solid #DCE4ED;
+  border-radius: 9px;
+  background: #FFFFFF;
+  box-shadow: 0 14px 35px rgba(15, 41, 74, 0.09);
+}
+
+.asit-banner-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.asit-banner-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 260px;
+  padding: 30px;
+  color: var(--college-navy);
+  background: #F3F7FB;
+  text-align: center;
+}
+
+.asit-banner-fallback svg {
+  color: var(--college-blue);
+}
+
+.asit-banner-fallback strong {
+  font-size: 15px;
+}
+
+.asit-banner-fallback span {
+  color: var(--college-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.asit-shelf-caption {
+  margin-top: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #8793A3;
+  font-size: 10px;
+}
+
+.asit-shelf-caption svg {
+  color: var(--college-blue);
+  flex-shrink: 0;
+}
+
+/* Value points */
+
+.asit-benefits {
+  padding: 25px 0;
+  border-top: 1px solid var(--college-line);
+  border-bottom: 1px solid var(--college-line);
+  background: #FBFCFE;
+}
+
+.asit-benefits-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 20px;
 }
 
-.asit-stat {
+.asit-benefit {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
-  border: 1px solid var(--asit-line);
-  border-radius: 6px;
-  background: var(--asit-page);
+  min-width: 0;
 }
 
-.asit-stat-icon {
+.asit-benefit-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 38px;
   height: 38px;
-  display: grid;
-  place-items: center;
   flex-shrink: 0;
-  border-radius: 6px;
-  color: var(--asit-navy);
-  background: var(--asit-sky-soft);
+  border: 1px solid #E2EAF3;
+  border-radius: 7px;
+  color: var(--college-blue);
+  background: #FFFFFF;
 }
 
-.asit-stat strong {
-  display: block;
-  color: var(--asit-navy);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.asit-stat span {
-  display: block;
-  margin-top: 2px;
-  color: var(--asit-muted);
+.asit-benefit-text {
+  color: #526176;
   font-size: 11px;
+  font-weight: 600;
+  line-height: 1.55;
 }
 
-/* Sections */
+/* Audience */
 
-.asit-section {
-  padding: 76px 0;
-}
-
-.asit-section-white {
-  background: var(--asit-surface);
-  border-bottom: 1px solid var(--asit-line);
+.asit-audience {
+  padding: 67px 0;
+  background: var(--college-white);
 }
 
 .asit-section-heading {
-  max-width: 620px;
-  margin: 0 0 40px;
-}
-
-.asit-section-kicker {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--asit-sky);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
+  margin-bottom: 28px;
 }
 
 .asit-section-heading h2 {
   margin: 0;
-  color: var(--asit-navy);
-  font-family: 'Manrope', sans-serif;
-  font-size: clamp(26px, 3vw, 34px);
-  font-weight: 800;
-  letter-spacing: -0.9px;
-  line-height: 1.2;
+  color: var(--college-navy);
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -.6px;
 }
 
 .asit-section-heading p {
-  margin: 12px 0 0;
-  color: var(--asit-muted);
-  font-size: 14px;
-  line-height: 1.75;
-}
-
-/* Feature grid */
-
-.asit-feature-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
-.asit-feature-card {
-  padding: 24px;
-  border: 1px solid var(--asit-line);
-  border-radius: 6px;
-  background: var(--asit-surface);
-  transition: border-color 0.15s ease;
-}
-
-.asit-feature-card:hover {
-  border-color: var(--asit-sky);
-}
-
-.asit-feature-icon {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  margin-bottom: 16px;
-  border-radius: 6px;
-  color: var(--asit-navy);
-  background: var(--asit-sky-soft);
-}
-
-.asit-feature-card h3 {
-  margin: 0 0 8px;
-  color: var(--asit-navy);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.asit-feature-card p {
-  margin: 0;
-  color: var(--asit-muted);
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-/* Role cards */
-
-.asit-role-section {
-  background: var(--asit-page);
-  border-bottom: 1px solid var(--asit-line);
-}
-
-.asit-role-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
-.asit-role-card {
-  display: flex;
-  flex-direction: column;
-  padding: 24px;
-  border: 1px solid var(--asit-line);
-  border-top: 3px solid var(--asit-navy);
-  border-radius: 6px;
-  background: var(--asit-surface);
-}
-
-.asit-role-card:nth-child(2) {
-  border-top-color: var(--asit-sky);
-}
-
-.asit-role-card:nth-child(3) {
-  border-top-color: var(--asit-red);
-}
-
-.asit-role-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 18px;
-}
-
-.asit-role-icon {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  color: var(--asit-navy);
-  background: var(--asit-sky-soft);
-}
-
-.asit-role-number {
-  color: #94A3B8;
-  font-family: 'Manrope', sans-serif;
-  font-size: 16px;
-  font-weight: 800;
-}
-
-.asit-role-card h3 {
-  margin: 0 0 8px;
-  color: var(--asit-navy);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.asit-role-card p {
-  margin: 0 0 18px;
-  color: var(--asit-muted);
-  font-size: 13px;
-  line-height: 1.65;
-  flex: 1;
-}
-
-.asit-role-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--asit-navy);
+  margin: 10px 0 0;
+  color: var(--college-muted);
   font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
+  line-height: 1.7;
 }
 
-.asit-role-link:hover {
-  color: var(--asit-sky);
-}
-
-/* Device section */
-
-.asit-device-section {
-  padding: 72px 0;
-  background: var(--asit-surface);
-  border-bottom: 1px solid var(--asit-line);
-}
-
-.asit-device-layout {
+.asit-audience-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  gap: 48px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
 }
 
-.asit-device-copy h2 {
-  margin: 0;
-  color: var(--asit-navy);
-  font-family: 'Manrope', sans-serif;
-  font-size: 30px;
-  line-height: 1.2;
-  letter-spacing: -0.8px;
-}
-
-.asit-device-copy p {
-  margin: 14px 0 20px;
-  color: var(--asit-muted);
-  font-size: 14px;
-  line-height: 1.75;
-}
-
-.asit-device-list {
+.asit-audience-card {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 15px;
+  padding: 21px;
+  border: 1px solid var(--college-line);
+  border-radius: 7px;
+  background: #FFFFFF;
+  transition: border-color .18s ease, background .18s ease;
 }
 
-.asit-device-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--asit-navy);
-  font-size: 13px;
-  font-weight: 600;
+.asit-audience-card:hover {
+  border-color: #C8D9EB;
+  background: #FCFDFF;
 }
 
-.asit-device-item svg {
-  color: var(--asit-sky);
-}
-
-.asit-device-visual {
-  min-height: 220px;
+.asit-audience-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 28px;
-  padding: 28px;
-  border: 1px solid var(--asit-line);
-  border-radius: 8px;
-  background: var(--asit-page);
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  color: var(--college-blue);
+  background: var(--college-blue-soft);
 }
 
-.asit-device {
-  display: grid;
-  place-items: center;
-  color: var(--asit-navy);
+.asit-audience-card h3 {
+  margin: 1px 0 7px;
+  color: var(--college-navy);
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.asit-device:nth-child(2) {
-  color: var(--asit-sky);
+.asit-audience-card p {
+  margin: 0;
+  color: var(--college-muted);
+  font-size: 11px;
+  line-height: 1.7;
 }
 
-/* Help panel */
+/* Help and policy */
 
 .asit-help-section {
-  padding: 64px 0;
-  background: var(--asit-page);
+  padding: 53px 0;
+  background: #F4F7FA;
+  border-top: 1px solid #E8EDF3;
 }
 
-.asit-help-panel {
+.asit-help-layout {
+  display: grid;
+  grid-template-columns: 1.15fr .85fr;
+  gap: 45px;
+}
+
+.asit-help-heading {
+  margin: 0 0 9px;
+  color: var(--college-navy);
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.asit-help-description {
+  max-width: 470px;
+  margin: 0 0 22px;
+  color: var(--college-muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.asit-contact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.asit-contact-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 32px 36px;
-  border: 1px solid var(--asit-line);
-  border-left: 4px solid var(--asit-gold);
-  border-radius: 6px;
-  background: var(--asit-surface);
-}
-
-.asit-help-copy span {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--asit-sky);
+  gap: 11px;
+  color: #58677C;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
 }
 
-.asit-help-copy h2 {
-  margin: 0;
-  color: var(--asit-navy);
-  font-family: 'Manrope', sans-serif;
-  font-size: 23px;
-  letter-spacing: -0.5px;
+.asit-contact-item svg {
+  color: var(--college-blue);
+  flex-shrink: 0;
 }
 
-.asit-help-copy p {
-  margin: 6px 0 0;
-  color: var(--asit-muted);
+.asit-policy-box {
+  padding: 22px;
+  border: 1px solid #E1E8F0;
+  border-radius: 7px;
+  background: #FFFFFF;
+}
+
+.asit-policy-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 13px;
+  color: var(--college-navy);
   font-size: 13px;
+  font-weight: 700;
+}
+
+.asit-policy-heading svg {
+  color: var(--college-blue);
+  flex-shrink: 0;
+}
+
+.asit-policy-box p {
+  margin: 0 0 12px;
+  color: #748196;
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+.asit-policy-box p:last-child {
+  margin-bottom: 0;
 }
 
 /* Footer */
 
 .asit-footer {
-  padding: 24px 0;
-  border-top: 1px solid var(--asit-line);
-  background: var(--asit-surface);
+  padding: 22px 0;
+  background: #FFFFFF;
+  border-top: 1px solid var(--college-line);
 }
 
 .asit-footer-inner {
@@ -761,476 +616,629 @@ const styles = `
   gap: 20px;
 }
 
-.asit-footer-brand {
+.asit-footer-college {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.asit-footer-brand img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
-.asit-footer-brand strong {
-  color: var(--asit-navy);
-  font-size: 12px;
+  color: var(--college-navy);
+  font-size: 11px;
   font-weight: 700;
 }
 
-.asit-footer-note {
-  color: var(--asit-muted);
-  font-size: 11px;
+.asit-footer-college img {
+  width: 29px;
+  height: 29px;
+  object-fit: contain;
+}
+
+.asit-footer-links {
+  display: flex;
+  align-items: center;
+  gap: 19px;
+}
+
+.asit-footer-links a {
+  color: #7F8B9C;
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.asit-footer-links a:hover {
+  color: var(--college-blue);
+}
+
+.asit-footer-copy {
+  color: #9AA5B3;
+  font-size: 10px;
 }
 
 /* Login wrapper */
 
-.asit-login-back {
+.asit-login-page {
   min-height: 100vh;
   padding: 24px;
-  background: var(--asit-page);
-  font-family: 'DM Sans', sans-serif;
+  background: #F7F9FC;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
-.asit-login-back-header {
-  width: min(1100px, 100%);
+.asit-login-header {
+  width: min(1050px, 100%);
   margin: 0 auto 20px;
 }
 
-.asit-back-button {
+.asit-login-back-button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 14px;
-  border: 1px solid var(--asit-line);
+  padding: 10px 13px;
+  color: var(--college-navy);
+  background: #FFFFFF;
+  border: 1px solid #E5EAF0;
   border-radius: 6px;
-  color: var(--asit-navy);
-  background: var(--asit-surface);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.asit-back-button:hover {
-  background: var(--asit-page);
-}
-
 .asit-login-content {
-  width: min(1100px, 100%);
-  min-height: 540px;
+  width: min(1050px, 100%);
+  min-height: 520px;
   margin: 0 auto;
-  padding: 24px;
-  border: 1px solid var(--asit-line);
+  padding: 22px;
+  border: 1px solid #E5EAF0;
   border-radius: 8px;
-  background: var(--asit-surface);
+  background: #FFFFFF;
 }
 
 /* Responsive */
 
-@media (max-width: 900px) {
-  .asit-nav {
-    gap: 18px;
-  }
-
-  .asit-device-layout {
+@media (max-width: 850px) {
+  .asit-hero-layout {
     grid-template-columns: 1fr;
-    gap: 36px;
+    gap: 35px;
   }
 
-  .asit-feature-grid,
-  .asit-role-grid {
+  .asit-hero-copy {
+    max-width: 620px;
+  }
+
+  .asit-bookshelf-area {
+    width: min(650px, 100%);
+    margin: 0 auto;
+  }
+
+  .asit-benefits-grid {
     grid-template-columns: repeat(2, 1fr);
+    row-gap: 19px;
+  }
+
+  .asit-help-layout {
+    grid-template-columns: 1fr;
+    gap: 28px;
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 600px) {
   .asit-container {
     width: calc(100% - 32px);
   }
 
   .asit-header {
-    height: 68px;
+    height: 66px;
   }
 
-  .asit-nav,
-  .asit-login-link {
+  .asit-brand-logo,
+  .asit-brand-mark {
+    width: 37px;
+    height: 37px;
+  }
+
+  .asit-brand-name {
+    font-size: 13px;
+  }
+
+  .asit-brand-description {
+    font-size: 8px;
+    letter-spacing: .5px;
+  }
+
+  .asit-header-actions {
+    gap: 0;
+  }
+
+  .asit-header-actions .asit-help-link {
     display: none;
   }
 
+  .asit-signin-button {
+    min-height: 39px;
+    padding: 0 13px;
+    font-size: 11px;
+  }
+
   .asit-hero {
-    padding: 44px 0 40px;
+    padding: 44px 0 45px;
   }
 
-  .asit-hero h1 {
-    font-size: 36px;
-    letter-spacing: -1px;
+  .asit-hero-layout {
+    gap: 30px;
   }
 
-  .asit-showcase-band {
-    padding: 28px 0;
+  .asit-hero-title {
+    font-size: 37px;
+    letter-spacing: -1.4px;
   }
 
-  .asit-preview-image {
-    max-height: 280px;
+  .asit-hero-description {
+    margin: 16px 0 22px;
+    font-size: 13px;
   }
 
-  .asit-preview-footer,
-  .asit-help-panel,
-  .asit-footer-inner {
-    flex-direction: column;
+  .asit-hero-actions {
+    gap: 10px;
+  }
+
+  .asit-members-note {
     align-items: flex-start;
+    line-height: 1.6;
   }
 
-  .asit-stats-grid,
-  .asit-feature-grid,
-  .asit-role-grid {
+  .asit-bookshelf-area {
+    padding: 5px 0;
+  }
+
+  .asit-shelf-heading {
+    margin-bottom: 11px;
+  }
+
+  .asit-banner-preview {
+    border-radius: 7px;
+  }
+
+  .asit-shelf-caption {
+    font-size: 9px;
+    text-align: center;
+  }
+
+  .asit-benefits {
+    padding: 22px 0;
+  }
+
+  .asit-benefits-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 18px 12px;
+  }
+
+  .asit-benefit {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .asit-benefit-icon {
+    width: 33px;
+    height: 33px;
+  }
+
+  .asit-benefit-text {
+    font-size: 10px;
+  }
+
+  .asit-audience {
+    padding: 48px 0;
+  }
+
+  .asit-section-heading h2 {
+    font-size: 22px;
+  }
+
+  .asit-audience-grid {
     grid-template-columns: 1fr;
+    gap: 11px;
   }
 
-  .asit-help-panel {
-    padding: 24px;
+  .asit-audience-card {
+    padding: 17px;
+  }
+
+  .asit-help-section {
+    padding: 40px 0;
+  }
+
+  .asit-footer-inner {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .asit-footer-links {
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .asit-login-page {
+    padding: 13px;
+  }
+
+  .asit-login-content {
+    min-height: 0;
+    padding: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .asit-library-page *,
+  .asit-login-page * {
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }
 `;
 
 /* -------------------------------------------------------------------------- */
-/*                              PUBLIC LANDING PAGE                           */
+/*                         HELPERS AND PAGE COMPONENTS                         */
+/* -------------------------------------------------------------------------- */
+
+function CollegeLogo() {
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  if (logoFailed) {
+    return (
+      <div className="asit-brand-mark" aria-hidden="true">
+        <Library size={22} />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      className="asit-brand-logo"
+      src="/asit-logo.png"
+      alt="College logo"
+      onError={() => setLogoFailed(true)}
+    />
+  );
+}
+
+function FooterLogo() {
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  if (logoFailed) {
+    return <Library size={20} aria-hidden="true" />;
+  }
+
+  return (
+    <img
+      src="/asit-logo.png"
+      alt=""
+      onError={() => setLogoFailed(true)}
+    />
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                         LANDING PAGE BANNER                                 */
+/* -------------------------------------------------------------------------- */
+
+function BookShelf() {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  return (
+    <div className="asit-bookshelf-area">
+      <div className="asit-shelf-heading">
+        <span>Explore your digital library</span>
+        <span>ASIT Digital Resources</span>
+      </div>
+
+      <div className="asit-banner-preview">
+        {imageFailed ? (
+          <div className="asit-banner-fallback">
+            <Library size={34} />
+            <strong>ASIT Digital Resource Library</strong>
+            <span>
+              Your academic books, course materials and reference resources
+              in one place.
+            </span>
+          </div>
+        ) : (
+          <img
+            src="/asit-elibrary-content-display.png"
+            alt="Preview of the ASIT Digital Resource Library"
+            className="asit-banner-image"
+            onError={() => setImageFailed(true)}
+          />
+        )}
+      </div>
+
+      <div className="asit-shelf-caption">
+        <BookMarked size={14} />
+        <span>Your academic resources, organised in one place</span>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              LANDING PAGE                                   */
 /* -------------------------------------------------------------------------- */
 
 function FrontDoor({ onLogin }: { onLogin: () => void }) {
+  const [showAccessHelp, setShowAccessHelp] = useState(false);
+
   return (
-    <main className="asit-front-door">
+    <main className="asit-library-page">
       <style>{styles}</style>
+
+      {/* Header */}
 
       <header className="asit-header">
         <div className="asit-container asit-header-inner">
-          <a className="asit-brand" href="#home" aria-label="ASIT eLibrary home">
-            <img
-              className="asit-brand-logo"
-              src="/asit-logo.png"
-              alt="Advanced School of Information Technology logo"
-              onError={(event) => {
-                event.currentTarget.style.display = 'none';
-              }}
-            />
-            <div className="asit-brand-copy">
-              <span className="asit-brand-name">ASIT eLibrary</span>
-              <span className="asit-brand-subtitle">Digital Learning Repository</span>
-            </div>
-          </a>
+          <div className="asit-brand">
+            <CollegeLogo />
 
-          <nav className="asit-nav" aria-label="Main navigation">
-            <a href="#home">Home</a>
-            <a href="#features">Features</a>
-            <a href="#access">Access</a>
-            <a href="#support">Support</a>
-          </nav>
+            <div className="asit-brand-copy">
+              <span className="asit-brand-name">ASIT</span>
+              <span className="asit-brand-description">
+                Digital Resource Library
+              </span>
+            </div>
+          </div>
 
           <div className="asit-header-actions">
-            <button type="button" className="asit-login-link" onClick={onLogin}>
-              Sign in
-            </button>
+            <a href="#help" className="asit-help-link">
+              <HelpCircle size={15} />
+              Need help?
+            </a>
+
             <button
               type="button"
-              className="asit-primary-button asit-button-small"
+              className="asit-signin-button"
               onClick={onLogin}
             >
-              Access Library <ArrowRight size={14} />
+              Sign in <ArrowRight size={15} />
             </button>
           </div>
         </div>
       </header>
 
-      <section className="asit-hero" id="home">
-        <div className="asit-container">
-          <div className="asit-hero-inner">
-            <div className="asit-eyebrow">
-              <LockKeyhole size={12} />
-              Academic resources, organised
+      {/* Hero */}
+
+      <section className="asit-hero">
+        <div className="asit-container asit-hero-layout">
+          <div className="asit-hero-copy">
+            <div className="asit-members-label">
+              <LockKeyhole size={13} />
+              College members only
             </div>
 
-            <h1>
-              Your learning resources.
+            <h1 className="asit-hero-title">
+              Your college library,
               <br />
-              <span>One library.</span>
+              <span>anywhere you study.</span>
             </h1>
 
             <p className="asit-hero-description">
-              Access course materials, learning documents and academic resources
-              through one organised digital library built to support teaching
-              and learning at ASIT.
+              Access textbooks, course readings and reference materials
+              through your college&apos;s digital resource library. Sign in
+              with your college account to get started.
             </p>
 
             <div className="asit-hero-actions">
-              <button type="button" className="asit-primary-button" onClick={onLogin}>
-                Enter the Library <ArrowRight size={16} />
+              <button
+                type="button"
+                className="asit-signin-button asit-signin-button-large"
+                onClick={onLogin}
+              >
+                Sign in to your library
+                <ArrowRight size={16} />
               </button>
 
-              <a className="asit-secondary-button" href="#features">
-                Explore the platform <ChevronRight size={15} />
-              </a>
+              <button
+                type="button"
+                className="asit-access-link"
+                onClick={() => setShowAccessHelp((current) => !current)}
+                aria-expanded={showAccessHelp}
+              >
+                How do I get access?
+                <HelpCircle size={14} />
+              </button>
             </div>
 
-            <div className="asit-trust-line">
-              <ShieldCheck size={16} />
-              <span>Organised academic resources for the ASIT community</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="asit-showcase-band" aria-label="Library display preview">
-        <div className="asit-container">
-          <div className="asit-preview-window">
-            <div className="asit-preview-topbar">
-              <div className="asit-preview-dots">
-                <i />
-                <i />
-                <i />
+            {showAccessHelp && (
+              <div className="asit-access-note">
+                <strong>Access is provided by your college.</strong>
+                <p>
+                  Student, lecturer and staff accounts are created or managed
+                  by authorised college administrators. If you do not have
+                  login details, contact the library or IT helpdesk.
+                </p>
               </div>
-              <span className="asit-preview-label">ASIT Digital Library Preview</span>
-              <span style={{ width: 32 }} />
-            </div>
+            )}
 
-            <div className="asit-preview-image-wrap">
-              <img
-                className="asit-preview-image"
-                src="/asit-elibrary-content-display.png"
-                alt="Preview of the ASIT eLibrary interface"
-              />
+            <div className="asit-members-note">
+              <ShieldCheck size={15} />
+              <span>
+                For students, lecturers and authorised staff of ASIT.
+              </span>
             </div>
+          </div>
 
-            <div className="asit-preview-footer">
-              <strong>
-                <BookOpen size={15} />
-                Digital learning resources in one place
-              </strong>
-              <span>Browse, preview and download course documents from a single workspace</span>
+          <BookShelf />
+        </div>
+      </section>
+
+      {/* Value points */}
+
+      <section className="asit-benefits">
+        <div className="asit-container asit-benefits-grid">
+          <div className="asit-benefit">
+            <div className="asit-benefit-icon">
+              <Download size={18} />
             </div>
+            <span className="asit-benefit-text">
+              Read online or download PDF materials
+            </span>
+          </div>
+
+          <div className="asit-benefit">
+            <div className="asit-benefit-icon">
+              <Bookmark size={18} />
+            </div>
+            <span className="asit-benefit-text">
+              Browse categories, programmes and A–Z shelves
+            </span>
+          </div>
+
+          <div className="asit-benefit">
+            <div className="asit-benefit-icon">
+              <Laptop size={18} />
+            </div>
+            <span className="asit-benefit-text">
+              Access from phone, tablet or computer
+            </span>
+          </div>
+
+          <div className="asit-benefit">
+            <div className="asit-benefit-icon">
+              <BookMarked size={18} />
+            </div>
+            <span className="asit-benefit-text">
+              New learning resources added regularly
+            </span>
           </div>
         </div>
       </section>
 
-      <section className="asit-stats" aria-label="Platform highlights">
-        <div className="asit-container asit-stats-grid">
-          <div className="asit-stat">
-            <div className="asit-stat-icon"><Library size={18} /></div>
-            <div>
-              <strong>Centralised library</strong>
-              <span>Learning resources in one location</span>
-            </div>
-          </div>
+      {/* Audience */}
 
-          <div className="asit-stat">
-            <div className="asit-stat-icon"><Users size={18} /></div>
-            <div>
-              <strong>Role-based access</strong>
-              <span>Access designed around your role</span>
-            </div>
-          </div>
-
-          <div className="asit-stat">
-            <div className="asit-stat-icon"><ShieldCheck size={18} /></div>
-            <div>
-              <strong>Managed resources</strong>
-              <span>Structured and controlled access</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="asit-section asit-section-white" id="features">
-        <div className="asit-container">
-          <div className="asit-section-heading">
-            <span className="asit-section-kicker">A better way to access materials</span>
-            <h2>Everything you need to support learning</h2>
-            <p>
-              A structured digital environment that makes academic resources
-              easier to organise, discover and use.
-            </p>
-          </div>
-
-          <div className="asit-feature-grid">
-            <article className="asit-feature-card">
-              <div className="asit-feature-icon"><Search size={20} /></div>
-              <h3>Find resources easily</h3>
-              <p>
-                Browse learning materials in an organised library and locate
-                relevant documents without searching through scattered files.
-              </p>
-            </article>
-
-            <article className="asit-feature-card">
-              <div className="asit-feature-icon"><FileText size={20} /></div>
-              <h3>Access learning documents</h3>
-              <p>
-                View available course materials and supporting documents from
-                a central digital repository.
-              </p>
-            </article>
-
-            <article className="asit-feature-card">
-              <div className="asit-feature-icon"><CloudDownload size={20} /></div>
-              <h3>Download materials</h3>
-              <p>
-                Access permitted learning resources and keep the documents
-                you need available for your studies.
-              </p>
-            </article>
-
-            <article className="asit-feature-card">
-              <div className="asit-feature-icon"><GraduationCap size={20} /></div>
-              <h3>Course-focused content</h3>
-              <p>
-                Resources are arranged to make relevant academic materials
-                easier to identify and access.
-              </p>
-            </article>
-
-            <article className="asit-feature-card">
-              <div className="asit-feature-icon"><LockKeyhole size={20} /></div>
-              <h3>Controlled access</h3>
-              <p>
-                User access is managed according to assigned roles and
-                permissions within the institution.
-              </p>
-            </article>
-
-            <article className="asit-feature-card">
-              <div className="asit-feature-icon"><CheckCircle2 size={20} /></div>
-              <h3>Managed repository</h3>
-              <p>
-                A more consistent way for authorised staff to manage and
-                maintain the institution&apos;s learning resources.
-              </p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section className="asit-section asit-role-section" id="access">
+      <section className="asit-audience">
         <div className="asit-container">
           <div className="asit-section-heading">
-            <span className="asit-section-kicker">Designed around your role</span>
-            <h2>The right tools for each user</h2>
+            <h2>A shared academic resource</h2>
             <p>
-              Different users have different responsibilities. The platform
-              provides access according to the role assigned to each account.
+              The digital library supports the different people involved
+              in teaching, learning and academic administration.
             </p>
           </div>
 
-          <div className="asit-role-grid">
-            <article className="asit-role-card">
-              <div className="asit-role-top">
-                <div className="asit-role-icon"><GraduationCap size={21} /></div>
-                <span className="asit-role-number">01</span>
+          <div className="asit-audience-grid">
+            <article className="asit-audience-card">
+              <div className="asit-audience-icon">
+                <GraduationCap size={21} />
               </div>
-              <h3>Students</h3>
-              <p>
-                Discover course-related learning materials, preview documents
-                and access resources made available for your studies.
-              </p>
-              <button type="button" className="asit-role-link" onClick={onLogin}>
-                Student access <ArrowUpRight size={14} />
-              </button>
+              <div>
+                <h3>Students</h3>
+                <p>
+                  Find course materials, read reference documents and
+                  download resources made available for your studies.
+                </p>
+              </div>
             </article>
 
-            <article className="asit-role-card">
-              <div className="asit-role-top">
-                <div className="asit-role-icon"><Users size={21} /></div>
-                <span className="asit-role-number">02</span>
+            <article className="asit-audience-card">
+              <div className="asit-audience-icon">
+                <Users size={21} />
               </div>
-              <h3>Instructors</h3>
-              <p>
-                Access instructor tools and manage learning resources
-                associated with your assigned academic responsibilities.
-              </p>
-              <button type="button" className="asit-role-link" onClick={onLogin}>
-                Instructor access <ArrowUpRight size={14} />
-              </button>
+              <div>
+                <h3>Lecturers</h3>
+                <p>
+                  Access academic resources and make relevant learning
+                  materials available to students.
+                </p>
+              </div>
             </article>
 
-            <article className="asit-role-card">
-              <div className="asit-role-top">
-                <div className="asit-role-icon"><ShieldCheck size={21} /></div>
-                <span className="asit-role-number">03</span>
+            <article className="asit-audience-card">
+              <div className="asit-audience-icon">
+                <Library size={21} />
               </div>
-              <h3>Administrators</h3>
-              <p>
-                Manage the repository, oversee resources and maintain the
-                platform through administrative tools.
-              </p>
-              <button type="button" className="asit-role-link" onClick={onLogin}>
-                Administrator access <ArrowUpRight size={14} />
-              </button>
+              <div>
+                <h3>College staff</h3>
+                <p>
+                  Use authorised library and administration tools to
+                  support the management of learning resources.
+                </p>
+              </div>
             </article>
           </div>
         </div>
       </section>
 
-      <section className="asit-device-section">
-        <div className="asit-container asit-device-layout">
-          <div className="asit-device-copy">
-            <span className="asit-section-kicker">Access across devices</span>
-            <h2>Your library, wherever you study.</h2>
-            <p>
-              Use the digital library from a desktop computer, laptop, tablet
-              or smartphone. The interface adapts to different screen sizes
-              so you can access resources in the way that works best for you.
+      {/* Help and policy */}
+
+      <section className="asit-help-section" id="help">
+        <div className="asit-container asit-help-layout">
+          <div>
+            <h2 className="asit-help-heading">
+              Need help accessing the library?
+            </h2>
+
+            <p className="asit-help-description">
+              If your account is not working or you have not received
+              login details, contact the college library or IT helpdesk
+              for assistance.
             </p>
 
-            <div className="asit-device-list">
-              <div className="asit-device-item">
-                <CheckCircle2 size={16} /> Desktop and laptop access
+            <div className="asit-contact-list">
+              <div className="asit-contact-item">
+                <Library size={16} />
+                <span>Contact the college library desk</span>
               </div>
-              <div className="asit-device-item">
-                <CheckCircle2 size={16} /> Tablet-friendly layout
+
+              <div className="asit-contact-item">
+                <Mail size={16} />
+                <span>Contact your college IT helpdesk</span>
               </div>
-              <div className="asit-device-item">
-                <CheckCircle2 size={16} /> Mobile-responsive experience
+
+              <div className="asit-contact-item">
+                <Phone size={16} />
+                <span>Use the official college support contact details</span>
               </div>
             </div>
           </div>
 
-          <div className="asit-device-visual" aria-label="Supported devices">
-            <div className="asit-device">
-              <Monitor size={96} strokeWidth={1.35} />
+          <div className="asit-policy-box">
+            <div className="asit-policy-heading">
+              <ShieldCheck size={17} />
+              Responsible use of library resources
             </div>
-            <div className="asit-device">
-              <Tablet size={68} strokeWidth={1.35} />
-            </div>
-            <div className="asit-device">
-              <Smartphone size={44} strokeWidth={1.4} />
-            </div>
+
+            <p>
+              Library materials are provided for educational and
+              institutional use. Access is intended for authorised
+              students, lecturers and staff.
+            </p>
+
+            <p>
+              Respect copyright and the usage conditions attached to
+              each resource. Do not redistribute, reproduce or share
+              protected materials without permission.
+            </p>
+
+            <p>
+              Your account is for your own use. Keep your sign-in
+              credentials private and sign out when using a shared device.
+            </p>
           </div>
         </div>
       </section>
 
-      <section className="asit-help-section" id="support">
-        <div className="asit-container">
-          <div className="asit-help-panel">
-            <div className="asit-help-copy">
-              <span>Get started</span>
-              <h2>Ready to access your learning resources?</h2>
-              <p>Sign in using your institution-provided account to continue.</p>
-            </div>
-
-            <button type="button" className="asit-primary-button" onClick={onLogin}>
-              Sign in to the Library <ArrowRight size={16} />
-            </button>
-          </div>
-        </div>
-      </section>
+      {/* Footer */}
 
       <footer className="asit-footer">
         <div className="asit-container asit-footer-inner">
-          <div className="asit-footer-brand">
-            <img src="/asit-logo.png" alt="" />
-            <strong>ASIT Digital Library</strong>
+          <div className="asit-footer-college">
+            <FooterLogo />
+            <span>ASIT Digital Resource Library</span>
           </div>
-          <span className="asit-footer-note">
-            Academic resources. Organised for learning.
+
+          <div className="asit-footer-links">
+            <a href="#help">Help and support</a>
+            <a href="#help">Acceptable use</a>
+            <a href="#help">Copyright</a>
+          </div>
+
+          <span className="asit-footer-copy">
+            For authorised college members
           </span>
         </div>
       </footer>
@@ -1239,12 +1247,17 @@ function FrontDoor({ onLogin }: { onLogin: () => void }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                              PORTAL ROUTING                                 */
+/*                              APPLICATION ROUTING                            */
 /* -------------------------------------------------------------------------- */
 
 function MainPortal() {
   const { currentUser } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
+
+  /*
+- Authenticated users bypass the landing page.
+- Their assigned role determines which dashboard is displayed.
+   */
 
   if (currentUser) {
     return (
@@ -1252,6 +1265,7 @@ function MainPortal() {
         {currentUser.role === 'SYSTEM_ADMIN' && <AdminDashboard />}
         {currentUser.role === 'INSTRUCTOR' && <InstructorDashboard />}
         {currentUser.role === 'STUDENT' && <StudentLibrary />}
+
         <ForceChangePasswordModal />
         <RepositoryFooter />
       </>
@@ -1260,17 +1274,17 @@ function MainPortal() {
 
   if (showLogin) {
     return (
-      <main className="asit-login-back">
+      <main className="asit-login-page">
         <style>{styles}</style>
 
-        <div className="asit-login-back-header">
+        <div className="asit-login-header">
           <button
             type="button"
-            className="asit-back-button"
+            className="asit-login-back-button"
             onClick={() => setShowLogin(false)}
           >
             <X size={14} />
-            Back to home
+            Back to library home
           </button>
         </div>
 
