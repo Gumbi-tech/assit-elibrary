@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   BookMarked,
@@ -21,6 +21,7 @@ import {
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { LibraryProvider } from '@/context/LibraryContext';
 
+import { AsitBookLoader } from '@/components/AsitBookLoader';
 import { LoginScreen } from '@/components/repository/LoginScreen';
 import { AdminDashboard } from '@/components/repository/AdminDashboard';
 import { InstructorDashboard } from '@/components/repository/InstructorDashboard';
@@ -347,8 +348,13 @@ const styles = `
 }
 
 .asit-banner-preview {
+  position: relative;
   overflow: hidden;
   width: 100%;
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid #DCE4ED;
   border-radius: 9px;
   background: #FFFFFF;
@@ -362,6 +368,16 @@ const styles = `
   object-fit: contain;
 }
 
+.asit-banner-loader-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.92);
+  z-index: 2;
+}
+
 .asit-banner-fallback {
   display: flex;
   flex-direction: column;
@@ -373,6 +389,7 @@ const styles = `
   color: var(--college-navy);
   background: #F3F7FB;
   text-align: center;
+  width: 100%;
 }
 
 .asit-banner-fallback svg {
@@ -920,7 +937,30 @@ function FooterLogo() {
 /* -------------------------------------------------------------------------- */
 
 function BookShelf() {
+  const [imageLoading, setImageLoading] = useState(true);
   const [imageFailed, setImageFailed] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete) {
+      if (img.naturalWidth > 0) {
+        setImageLoading(false);
+        setImageFailed(false);
+      } else {
+        setImageLoading(false);
+        setImageFailed(true);
+      }
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setImageLoading(false);
+      setImageFailed(true);
+    }, 6000);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   return (
     <div className="asit-bookshelf-area">
@@ -940,12 +980,35 @@ function BookShelf() {
             </span>
           </div>
         ) : (
-          <img
-            src="/asit-elibrary-content-display.png"
-            alt="Preview of the ASIT Digital Resource Library"
-            className="asit-banner-image"
-            onError={() => setImageFailed(true)}
-          />
+          <>
+            {imageLoading && (
+              <div className="asit-banner-loader-overlay">
+                <AsitBookLoader
+                  size={72}
+                  label="Loading library preview..."
+                />
+              </div>
+            )}
+            <img
+              ref={imgRef}
+              src="/asit-elibrary-content-display.png"
+              alt="Preview of the ASIT Digital Resource Library"
+              className="asit-banner-image"
+              onLoad={(e) => {
+                if (e.currentTarget.naturalWidth > 0) {
+                  setImageLoading(false);
+                  setImageFailed(false);
+                } else {
+                  setImageLoading(false);
+                  setImageFailed(true);
+                }
+              }}
+              onError={() => {
+                setImageLoading(false);
+                setImageFailed(true);
+              }}
+            />
+          </>
         )}
       </div>
 
