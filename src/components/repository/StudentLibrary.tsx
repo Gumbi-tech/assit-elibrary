@@ -20,6 +20,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import { AsitBookLoader } from '@/components/AsitBookLoader';
 import PortalHeader from './PortalHeader';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import PdfThumbnail from './PdfThumbnail';
@@ -768,18 +769,27 @@ export const StudentLibrary: React.FC<Props> = ({
 
           {/* Picture-Based Book Rows Grouped by Letter */}
           {isLoading ? (
-            <section className="repo-panel">
-              <div
-                style={{
-                  padding: '32px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  color: '#475569',
-                }}
-              >
-                Loading open library shelf...
-              </div>
-            </section>
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 40,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                textAlign: 'center',
+                background: 'rgba(248, 250, 252, 0.72)',
+                backdropFilter: 'blur(2px)',
+              }}
+            >
+              <AsitBookLoader
+                size={84}
+                label="Loading open library shelf..."
+              />
+            </div>
           ) : shelfSections.length === 0 ? (
             <section className="repo-panel">
               <div

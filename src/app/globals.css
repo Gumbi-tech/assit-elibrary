@@ -1699,3 +1699,53 @@
     transform: none !important;
   }
 }
+
+@keyframes asit-icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: asit-icon-spin 0.9s linear infinite;
+}
+
+
+/* Authenticated Dashboard Shell */
+
+.asit-dashboard-shell {
+  min-height: 100vh;
+  padding: 20px 28px 32px;
+  background: #F7F9FC;
+}
+
+.asit-dashboard-frame {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (max-width: 850px) {
+  .asit-dashboard-shell {
+    padding: 16px 18px 24px;
+  }
+
+  .asit-dashboard-frame {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  .asit-dashboard-shell {
+    padding: 12px 12px 20px;
+  }
+
+  .asit-dashboard-frame {
+    gap: 14px;
+  }
+}

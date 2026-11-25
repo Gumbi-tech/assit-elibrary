@@ -1,4 +1,3 @@
-// components/AsitBookLoader.tsx
 'use client';
 
 import React from 'react';
@@ -8,6 +7,85 @@ interface AsitBookLoaderProps {
   size?: number;
   fullScreen?: boolean;
 }
+
+const loaderCss = `
+  .asit-loader-svg {
+    animation: asit-float 2.1s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .asit-page-red {
+    transform-origin: 126px 112px;
+    animation: asit-page-top 2.1s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .asit-page-yellow {
+    transform-origin: 126px 112px;
+    animation: asit-page-mid 2.1s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .asit-page-blue {
+    transform-origin: 126px 112px;
+    animation: asit-page-base 2.1s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .asit-loader-shadow {
+    fill: rgba(8, 51, 88, 0.16);
+    transform-origin: 112px 196px;
+    animation: asit-shadow-pulse 2.1s ease-in-out infinite;
+    will-change: transform, opacity;
+  }
+
+  @keyframes asit-float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+
+  @keyframes asit-page-top {
+    0%, 100% {
+      transform: rotate(0deg);
+    }
+    45% {
+      transform: rotate(-9deg);
+    }
+  }
+
+  @keyframes asit-page-mid {
+    0%, 100% {
+      transform: rotate(0deg);
+    }
+    50% {
+      transform: rotate(-6deg);
+    }
+  }
+
+  @keyframes asit-page-base {
+    0%, 100% {
+      transform: rotate(0deg);
+    }
+    55% {
+      transform: rotate(-3.5deg);
+    }
+  }
+
+  @keyframes asit-shadow-pulse {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 0.9;
+    }
+    50% {
+      transform: scale(0.84);
+      opacity: 0.45;
+    }
+  }
+`;
 
 export function AsitBookLoader({
   label = 'Loading learning resources...',
@@ -24,6 +102,8 @@ export function AsitBookLoader({
           : 'flex flex-col items-center justify-center gap-3 py-8'
       }
     >
+      <style>{loaderCss}</style>
+
       <div className="asit-loader-stage" style={{ width: size, height: size }}>
         <svg
           width={size}
@@ -61,58 +141,6 @@ export function AsitBookLoader({
         </svg>
       </div>
       {label && <p className="text-sm font-medium tracking-tight">{label}</p>}
-
-      <style jsx>{`
-        .asit-loader-svg {
-          animation: asit-float 2.10s ease-in-out infinite;
-        }
-        .asit-page-red {
-          transform-origin: 126px 112px;
-          animation: asit-page-top 2.10s ease-in-out infinite;
-        }
-        .asit-page-yellow {
-          transform-origin: 126px 112px;
-          animation: asit-page-mid 2.10s ease-in-out infinite;
-        }
-        .asit-page-blue {
-          transform-origin: 126px 112px;
-          animation: asit-page-base 2.10s ease-in-out infinite;
-        }
-        .asit-loader-shadow {
-          fill: rgba(8, 51, 88, 0.16);
-          transform-origin: 112px 196px;
-          animation: asit-shadow-pulse 2.10s ease-in-out infinite;
-        }
-        @keyframes asit-float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-6px); }
-        }
-        @keyframes asit-page-top {
-          0%, 100% { transform: rotate(0deg); }
-          45% { transform: rotate(-9deg); }
-        }
-        @keyframes asit-page-mid {
-          0%, 100% { transform: rotate(0deg); }
-          50% { transform: rotate(-6deg); }
-        }
-        @keyframes asit-page-base {
-          0%, 100% { transform: rotate(0deg); }
-          55% { transform: rotate(-3.5deg); }
-        }
-        @keyframes asit-shadow-pulse {
-          0%, 100% { transform: scale(1); opacity: 0.9; }
-          50% { transform: scale(0.84); opacity: 0.45; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .asit-loader-svg,
-          .asit-page-red,
-          .asit-page-yellow,
-          .asit-page-blue,
-          .asit-loader-shadow {
-            animation: none !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }

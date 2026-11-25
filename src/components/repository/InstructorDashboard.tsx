@@ -18,6 +18,8 @@ import {
   BookMarked,
   BookOpen,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Edit3,
   Eye,
@@ -26,6 +28,7 @@ import {
   FolderKanban,
   LayoutGrid,
   Loader2,
+  MoreHorizontal,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -34,6 +37,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { AsitBookLoader } from '@/components/AsitBookLoader';
 import PortalHeader from './PortalHeader';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import PdfThumbnail from './PdfThumbnail';
@@ -50,9 +54,6 @@ type Props = {
 };
 
 type InstructorTab = 'shelf' | 'manage-uploads' | 'categories';
-
-type TagLike = string | { name: string };
-type ProgramLike = string | { name: string };
 
 type InstructorBookRecord = DocumentRecord & {
   coverUrl?: string | null;
@@ -164,9 +165,11 @@ function getRelatedBooks(
     .slice(0, 4);
 }
 
-async function resolveThumbnailSource(
+async function resolveFallbackCoverBlob(
   doc: InstructorBookRecord
 ): Promise<string | null> {
+  if (doc.coverUrl) return null;
+
   const streamUrl =
     doc.signedUrl || `/api/documents/${encodeURIComponent(doc.id)}/file`;
 
@@ -203,10 +206,10 @@ export const InstructorDashboard: React.FC<Props> = ({
   const [categories, setCategories] = useState<LibraryCategoryItem[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
 
-  // Open library shelf books (picture-based view)
+  // Open library shelf books (picture-based view matching StudentLibrary)
   const [shelfBooks, setShelfBooks] = useState<InstructorBookRecord[]>([]);
   const [isLoadingShelf, setIsLoadingShelf] = useState(true);
-  const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
+  const [fallbackCoverUrls, setFallbackCoverUrls] = useState<Record<string, string>>({});
   const thumbnailBlobUrls = useRef<Set<string>>(new Set());
 
   // Only uploads belonging to this instructor (fetched from /api/documents/mine)
@@ -221,9 +224,12 @@ export const InstructorDashboard: React.FC<Props> = ({
   const [activeLetter, setActiveLetter] = useState('ALL');
   const [sortBy, setSortBy] = useState<'title' | 'recent'>('title');
 
-  // Manage Uploads table filters & selection
+  // Manage Uploads table filters, pagination & selection
   const [tableSearch, setTableSearch] = useState('');
   const [tableCategoryFilter, setTableCategoryFilter] = useState('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [openActionDocId, setOpenActionDocId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
@@ -243,7 +249,7 @@ export const InstructorDashboard: React.FC<Props> = ({
   const [editError, setEditError] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-const [busyActionId, setBusyActionId] = useState<string | null>(null);
+  const [busyActionId, setBusyActionId] = useState<string | null>(null);
 
   // Single delete modal (own uploads only)
   const [deletingDoc, setDeletingDoc] = useState<InstructorBookRecord | null>(
@@ -276,6 +282,24 @@ const [busyActionId, setBusyActionId] = useState<string | null>(null);
     };
   }, []);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [tableSearch, tableCategoryFilter, pageSize]);
+
+  useEffect(() => {
+    if (!openActionDocId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenActionDocId(null);
+    };
+    const handleClickOutside = () => setOpenActionDocId(null);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('click', handleClickOutside);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('click', handleClickOutside);
+    };
+  }, [openActionDocId]);
+
   const closePreviewModal = useCallback(() => {
     setPreviewLoadingDocId(null);
     setPreviewDoc((prev) => {
@@ -298,8 +322,8 @@ const [busyActionId, setBusyActionId] = useState<string | null>(null);
       const rawList = Array.isArray(data)
         ? data
         : Array.isArray(data?.categories)
-        ? data.categories
-        : [];
+          ? data.categories
+          : [];
 
       const normalized: LibraryCategoryItem[] = rawList.map(
         (
@@ -360,9 +384,9 @@ const [busyActionId, setBusyActionId] = useState<string | null>(null);
       const docs = (res.documents || []) as InstructorBookRecord[];
       const strictlyOwned = currentUser?.id
         ? docs.filter((doc) => {
-            const ownerId = doc.uploadedBy?.id || doc.uploadedById;
-            return !ownerId || ownerId === currentUser.id;
-          })
+          const ownerId = doc.uploadedBy?.id || doc.uploadedById;
+          return !ownerId || ownerId === currentUser.id;
+        })
         : docs;
 
       setMyUploads(strictlyOwned);
@@ -384,16 +408,18 @@ const [busyActionId, setBusyActionId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    const pdfDocs = shelfBooks.filter(
+    const pdfDocsWithoutCover = shelfBooks.filter(
       (doc) =>
-        doc.mimeType === 'application/pdf' ||
-        doc.filename.toLowerCase().endsWith('.pdf')
+        !doc.coverUrl &&
+        !fallbackCoverUrls[doc.id] &&
+        (doc.mimeType === 'application/pdf' ||
+          doc.filename.toLowerCase().endsWith('.pdf'))
     );
 
-    async function resolveThumbnails() {
-      for (const doc of pdfDocs) {
+    async function resolveFallbackCovers() {
+      for (const doc of pdfDocsWithoutCover) {
         if (cancelled) break;
-        const resolved = await resolveThumbnailSource(doc);
+        const resolved = await resolveFallbackCoverBlob(doc);
         if (cancelled) {
           if (resolved?.startsWith('blob:')) URL.revokeObjectURL(resolved);
           break;
@@ -402,16 +428,16 @@ const [busyActionId, setBusyActionId] = useState<string | null>(null);
           if (resolved.startsWith('blob:')) {
             thumbnailBlobUrls.current.add(resolved);
           }
-          setThumbUrls((prev) => ({ ...prev, [doc.id]: resolved }));
+          setFallbackCoverUrls((prev) => ({ ...prev, [doc.id]: resolved }));
         }
       }
     }
 
-    void resolveThumbnails();
+    void resolveFallbackCovers();
     return () => {
       cancelled = true;
     };
-  }, [shelfBooks]);
+  }, [shelfBooks, fallbackCoverUrls]);
 
   // Category CRUD handlers
   const handleCreateCategory = useCallback(
@@ -636,10 +662,22 @@ const [busyActionId, setBusyActionId] = useState<string | null>(null);
     }));
   }, [filteredShelfBooks]);
 
-  // Instructor's own uploaded books selection
+  // Pagination for instructor's own uploaded books
+  const totalPages = Math.max(1, Math.ceil(myUploads.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedUploads = useMemo(() => {
+    const start = (safeCurrentPage - 1) * pageSize;
+    return myUploads.slice(start, start + pageSize);
+  }, [myUploads, safeCurrentPage, pageSize]);
+
+  const rangeStart =
+    myUploads.length === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safeCurrentPage * pageSize, myUploads.length);
+
   const visibleUploadIds = useMemo(
-    () => myUploads.map((d) => d.id),
-    [myUploads]
+    () => paginatedUploads.map((d) => d.id),
+    [paginatedUploads]
   );
 
   const selectedUploads = useMemo(
@@ -704,6 +742,7 @@ const [busyActionId, setBusyActionId] = useState<string | null>(null);
   };
 
   const openEditModal = (doc: InstructorBookRecord) => {
+    setOpenActionDocId(null);
     setEditingDoc(doc);
     setEditName(doc.name);
     setEditAuthor(doc.author || '');
@@ -883,7 +922,12 @@ const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const handlePreviewRepoDoc = useCallback(
     async (doc: RepositoryDocument) => {
       setPreviewLoadingDocId(doc.docId);
-      setPreviewDoc({ ...doc, previewUrl: undefined });
+      setPreviewDoc((prev) => {
+        if (prev?.previewUrl?.startsWith('blob:')) {
+          URL.revokeObjectURL(prev.previewUrl);
+        }
+        return { ...doc, previewUrl: undefined };
+      });
       try {
         const match =
           shelfBooks.find((item) => item.id === doc.docId) ||
@@ -936,50 +980,52 @@ const [busyActionId, setBusyActionId] = useState<string | null>(null);
     [shelfBooks, myUploads, notify]
   );
 
- const handleTablePreview = async (doc: InstructorBookRecord) => {
-  if (!doc.signedUrl) {
-    notify('error', 'Preview URL unavailable. Refresh first.');
-    return;
-  }
-  setBusyActionId(doc.id);
-  try {
-    const res = await fetchAuthorizedDocumentBlobUrl(doc.signedUrl);
-    if (!res.ok || !res.blobUrl) {
-      notify('error', res.error || 'Could not load PDF preview.');
+  const handleTablePreview = async (doc: InstructorBookRecord) => {
+    setOpenActionDocId(null);
+    if (!doc.signedUrl) {
+      notify('error', 'Preview URL unavailable. Refresh first.');
       return;
     }
-    if (previewDoc?.previewUrl?.startsWith('blob:')) {
-      URL.revokeObjectURL(previewDoc.previewUrl);
+    setBusyActionId(doc.id);
+    try {
+      const res = await fetchAuthorizedDocumentBlobUrl(doc.signedUrl);
+      if (!res.ok || !res.blobUrl) {
+        notify('error', res.error || 'Could not load PDF preview.');
+        return;
+      }
+      if (previewDoc?.previewUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(previewDoc.previewUrl);
+      }
+      setPreviewDoc({
+        ...mapToRepositoryDocument(doc),
+        previewUrl: res.blobUrl,
+      });
+    } finally {
+      setBusyActionId(null);
     }
-    setPreviewDoc({
-      ...mapToRepositoryDocument(doc),
-      previewUrl: res.blobUrl,
-    });
-  } finally {
-    setBusyActionId(null);
-  }
-};
+  };
 
-const handleTableDownload = async (doc: InstructorBookRecord) => {
-  if (!doc.signedUrl) {
-    notify('error', 'Download URL unavailable. Refresh first.');
-    return;
-  }
-  setBusyActionId(doc.id);
-  try {
-    const res = await triggerAuthenticatedPdfDownload(
-      `${doc.signedUrl}${doc.signedUrl.includes('?') ? '&' : '?'}download=1`,
-      doc.filename || `${doc.name}.pdf`
-    );
-    if (!res.ok) {
-      notify('error', res.error || 'Could not download PDF.');
+  const handleTableDownload = async (doc: InstructorBookRecord) => {
+    setOpenActionDocId(null);
+    if (!doc.signedUrl) {
+      notify('error', 'Download URL unavailable. Refresh first.');
       return;
     }
-    notify('success', `Downloaded "${doc.name}".`);
-  } finally {
-    setBusyActionId(null);
-  }
-};
+    setBusyActionId(doc.id);
+    try {
+      const res = await triggerAuthenticatedPdfDownload(
+        `${doc.signedUrl}${doc.signedUrl.includes('?') ? '&' : '?'}download=1`,
+        doc.filename || `${doc.name}.pdf`
+      );
+      if (!res.ok) {
+        notify('error', res.error || 'Could not download PDF.');
+        return;
+      }
+      notify('success', `Downloaded "${doc.name}".`);
+    } finally {
+      setBusyActionId(null);
+    }
+  };
 
   const relatedMatches = useMemo(() => {
     if (!relatedTargetDoc) return [];
@@ -1021,7 +1067,7 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
       <main className="repo-main" style={{ marginTop: '20px' }}>
         <div
           className="repo-content"
-          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%' }}
         >
           <div className="repo-heading">
             <div>
@@ -1134,7 +1180,7 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
             </div>
           )}
 
-          {/* 1. Open Library Shelf (Picture-based view) */}
+          {/* 1. Open Library Shelf (Picture-based view matching StudentLibrary) */}
           {activeTab === 'shelf' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <section className="repo-panel">
@@ -1407,18 +1453,27 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
               </section>
 
               {isLoadingShelf ? (
-                <section className="repo-panel">
-                  <div
-                    style={{
-                      padding: '32px',
-                      textAlign: 'center',
-                      fontSize: '12px',
-                      color: '#475569',
-                    }}
-                  >
-                    Loading open library shelf...
-                  </div>
-                </section>
+                <div
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 40,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    background: 'rgba(248, 250, 252, 0.72)',
+                    backdropFilter: 'blur(2px)',
+                  }}
+                >
+                  <AsitBookLoader
+                    size={84}
+                    label="Loading open library shelf..."
+                  />
+                </div>
               ) : shelfSections.length === 0 ? (
                 <section className="repo-panel">
                   <div
@@ -1492,6 +1547,8 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                           const isBusy =
                             previewLoadingDocId === book.id ||
                             downloadingDocId === book.id;
+                          const effectiveCoverUrl =
+                            book.coverUrl || fallbackCoverUrls[book.id] || null;
 
                           return (
                             <article
@@ -1520,7 +1577,7 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                                 }}
                               >
                                 <PdfThumbnail
-                                  fileUrl={thumbUrls[book.id] || null}
+                                  coverUrl={effectiveCoverUrl}
                                   title={book.name}
                                   department={book.category || 'Open Library'}
                                 />
@@ -1603,9 +1660,9 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
             </div>
           )}
 
-          {/* 2. Manage Uploads Table (Strictly shows & manages only this instructor's uploads) */}
+          {/* 2. Manage Uploads Compact Data Table (Strictly shows & manages only this instructor's uploads) */}
           {activeTab === 'manage-uploads' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%' }}>
               <div
                 style={{
                   display: 'flex',
@@ -1651,13 +1708,12 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                 </div>
               </div>
 
-              <section className="repo-panel">
+              <section className="repo-panel" style={{ overflow: 'visible' }}>
                 <div className="repo-panel-head">
                   <strong>
-                    <BookOpen size={15} aria-hidden="true" /> MY UPLOADS (
-                    {myUploads.length})
+                    <BookOpen size={15} aria-hidden="true" /> MY UPLOADS ({myUploads.length})
                   </strong>
-                  <span>ONLY YOUR UPLOADED CONTENT</span>
+                  <span>PAGINATED DATA TABLE</span>
                 </div>
 
                 <div className="repo-filters">
@@ -1683,7 +1739,7 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                       <input
                         value={tableSearch}
                         onChange={(e) => setTableSearch(e.target.value)}
-                        placeholder="Search your uploaded book title, category, badge, or tag..."
+                        placeholder="Search your uploaded book title, author, category, badge, or tag..."
                       />
                     </div>
                   </label>
@@ -1694,6 +1750,7 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                     onClick={() => {
                       setTableCategoryFilter('ALL');
                       setTableSearch('');
+                      setCurrentPage(1);
                     }}
                   >
                     Reset
@@ -1741,30 +1798,31 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                   </div>
                 )}
 
-                <div className="repo-table-wrap">
-                  <table className="repo-table">
+                <div
+                  className="repo-table-wrap"
+                  style={{ width: '100%', overflowX: 'auto', overflowY: 'visible' }}
+                >
+                  <table className="repo-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr>
-                        <th className="repo-select-column">
+                        <th className="repo-select-column" style={{ width: '40px' }}>
                           <button
                             type="button"
                             className="repo-select-all"
                             onClick={toggleAllUploads}
-                            disabled={myUploads.length === 0 || isLoadingUploads}
+                            disabled={paginatedUploads.length === 0 || isLoadingUploads}
                             aria-label={
                               allUploadsSelected
-                                ? 'Deselect all your uploads'
-                                : 'Select all your uploads'
+                                ? 'Deselect all uploads on current page'
+                                : 'Select all uploads on current page'
                             }
                           >
                             <span
-                              className={`repo-checkbox-mark${
-                                allUploadsSelected ? ' is-checked' : ''
-                              }${
-                                someUploadsSelected && !allUploadsSelected
+                              className={`repo-checkbox-mark${allUploadsSelected ? ' is-checked' : ''
+                                }${someUploadsSelected && !allUploadsSelected
                                   ? ' is-indeterminate'
                                   : ''
-                              }`}
+                                }`}
                               aria-hidden="true"
                             >
                               {allUploadsSelected ? <Check size={12} /> : null}
@@ -1774,16 +1832,19 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                             </span>
                           </button>
                         </th>
-                        <th>Book, Badges &amp; Tags</th>
-                        <th>Category</th>
-                        <th>Size</th>
-                        <th>Actions</th>
+                        <th className="nowrap">Book</th>
+                        <th className="nowrap">Author</th>
+                        <th className="nowrap">Category</th>
+                        <th className="nowrap">Size</th>
+                        <th className="nowrap" style={{ textAlign: 'right' }}>
+                          Actions
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {isLoadingUploads ? (
                         <tr>
-                          <td colSpan={5} className="empty">
+                          <td colSpan={6} className="empty">
                             <span
                               style={{
                                 display: 'inline-flex',
@@ -1796,34 +1857,35 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                             </span>
                           </td>
                         </tr>
-                      ) : myUploads.length === 0 ? (
+                      ) : paginatedUploads.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="empty">
+                          <td colSpan={6} className="empty">
                             No books uploaded by you match this filter. Click
                             &ldquo;Upload Book&rdquo; to add a PDF.
                           </td>
                         </tr>
                       ) : (
-                        myUploads.map((doc) => {
+                        paginatedUploads.map((doc) => {
                           const isSelected = selectedIds.has(doc.id);
                           const isBusy = busyActionId === doc.id || isBulkDeleting;
-                          const docPrograms = extractNames(doc.programs);
-                          const docTags = extractNames(doc.tags);
+                          const isMenuOpen = openActionDocId === doc.id;
 
                           return (
                             <tr
                               key={doc.id}
-                              className={`repo-document-row${
-                                isSelected ? ' is-selected' : ''
-                              }`}
+                              className={`repo-document-row${isSelected ? ' is-selected' : ''
+                                }`}
                               onClick={() => toggleOne(doc.id)}
                             >
-                              <td onClick={(e) => e.stopPropagation()}>
+                              <td
+                                className="nowrap"
+                                style={{ paddingTop: '8px', paddingBottom: '8px' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
                                 <button
                                   type="button"
-                                  className={`repo-row-checkbox${
-                                    isSelected ? ' is-checked' : ''
-                                  }`}
+                                  className={`repo-row-checkbox${isSelected ? ' is-checked' : ''
+                                    }`}
                                   onClick={() => toggleOne(doc.id)}
                                   aria-label={
                                     isSelected
@@ -1833,9 +1895,8 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                                   aria-pressed={isSelected}
                                 >
                                   <span
-                                    className={`repo-checkbox-mark${
-                                      isSelected ? ' is-checked' : ''
-                                    }`}
+                                    className={`repo-checkbox-mark${isSelected ? ' is-checked' : ''
+                                      }`}
                                     aria-hidden="true"
                                   >
                                     {isSelected ? <Check size={12} /> : null}
@@ -1843,121 +1904,193 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                                 </button>
                               </td>
 
-                              <td>
-                                <div>
-                                  <strong>{doc.name}</strong>
-                                  <div style={{ fontSize: '11px', color: '#64748B' }}>
-                                    {doc.author ? `${doc.author} · ` : ''}
-                                    {doc.filename}
-                                  </div>
-
-                                  {docPrograms.length > 0 && (
-                                    <div
-                                      style={{
-                                        display: 'flex',
-                                        flexWrap: 'wrap',
-                                        gap: '4px',
-                                        marginTop: '4px',
-                                      }}
-                                    >
-                                      {docPrograms.map((prog) => (
-                                        <span
-                                          key={prog}
-                                          className="category"
-                                          style={{
-                                            background: '#EFF6FF',
-                                            color: '#1E3A8A',
-                                          }}
-                                        >
-                                          <BookMarked
-                                            size={10}
-                                            style={{
-                                              display: 'inline',
-                                              marginRight: '3px',
-                                            }}
-                                          />
-                                          {prog}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  {docTags.length > 0 && (
-                                    <div
-                                      style={{
-                                        display: 'flex',
-                                        flexWrap: 'wrap',
-                                        gap: '4px',
-                                        marginTop: '4px',
-                                      }}
-                                    >
-                                      {docTags.map((tag) => (
-                                        <span key={tag} className="category">
-                                          #{tag}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
+                              <td
+                                className="nowrap"
+                                style={{
+                                  paddingTop: '8px',
+                                  paddingBottom: '8px',
+                                  maxWidth: '280px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                                title={doc.name}
+                              >
+                                <strong>{doc.name}</strong>
                               </td>
 
-                              <td>
+                              <td
+                                className="nowrap"
+                                style={{
+                                  paddingTop: '8px',
+                                  paddingBottom: '8px',
+                                  maxWidth: '160px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  color: '#475569',
+                                }}
+                                title={doc.author || '—'}
+                              >
+                                {doc.author || '—'}
+                              </td>
+
+                              <td className="nowrap" style={{ paddingTop: '8px', paddingBottom: '8px' }}>
                                 <span className="category">
                                   {doc.category || 'Uncategorized'}
                                 </span>
                               </td>
 
-                              <td className="nowrap">{formatBytes(doc.size)}</td>
+                              <td className="nowrap" style={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                                {formatBytes(doc.size)}
+                              </td>
 
-                              <td onClick={(e) => e.stopPropagation()}>
-                                <div className="row-actions">
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={isBusy}
-                                    onClick={() => void handleTablePreview(doc)}
-                                  >
-                                    {busyActionId === doc.id ? (
-                                      <Loader2
-                                        size={13}
-                                        className="animate-spin"
-                                      />
-                                    ) : (
-                                      <Eye size={13} />
-                                    )}
-                                    <span>View</span>
-                                  </button>
+                              <td
+                                className="nowrap"
+                                style={{
+                                  paddingTop: '8px',
+                                  paddingBottom: '8px',
+                                  textAlign: 'right',
+                                  position: 'relative',
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  disabled={isBusy}
+                                  aria-haspopup="menu"
+                                  aria-expanded={isMenuOpen}
+                                  aria-label={`Actions for ${doc.name}`}
+                                  onClick={() =>
+                                    setOpenActionDocId((prev) =>
+                                      prev === doc.id ? null : doc.id
+                                    )
+                                  }
+                                >
+                                  {busyActionId === doc.id ? (
+                                    <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                                  ) : (
+                                    <MoreHorizontal size={14} aria-hidden="true" />
+                                  )}
+                                  <span>Actions</span>
+                                </button>
 
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={isBusy}
-                                    onClick={() => void handleTableDownload(doc)}
+                                {isMenuOpen && (
+                                  <div
+                                    role="menu"
+                                    aria-label={`Row actions for ${doc.name}`}
+                                    style={{
+                                      position: 'absolute',
+                                      right: '10px',
+                                      top: 'calc(100% - 4px)',
+                                      zIndex: 30,
+                                      minWidth: '144px',
+                                      background: '#FFFFFF',
+                                      border: '1px solid #CBD5E1',
+                                      borderRadius: '4px',
+                                      boxShadow: '0 8px 20px rgba(15, 23, 42, 0.12)',
+                                      padding: '4px',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: '2px',
+                                      textAlign: 'left',
+                                    }}
                                   >
-                                    <Download size={13} />
-                                    <span>Download</span>
-                                  </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={isBusy}
+                                      onClick={() => void handleTablePreview(doc)}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        width: '100%',
+                                        padding: '6px 8px',
+                                        fontSize: '12px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer',
+                                        color: '#0F172A',
+                                      }}
+                                    >
+                                      <Eye size={13} aria-hidden="true" />
+                                      <span>View</span>
+                                    </button>
 
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={isBusy}
-                                    onClick={() => openEditModal(doc)}
-                                  >
-                                    <Edit3 size={13} />
-                                    <span>Edit</span>
-                                  </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={isBusy}
+                                      onClick={() => void handleTableDownload(doc)}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        width: '100%',
+                                        padding: '6px 8px',
+                                        fontSize: '12px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer',
+                                        color: '#0F172A',
+                                      }}
+                                    >
+                                      <Download size={13} aria-hidden="true" />
+                                      <span>Download</span>
+                                    </button>
 
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={isBusy}
-                                    onClick={() => setDeletingDoc(doc)}
-                                  >
-                                    <Trash2 size={13} />
-                                    <span>Delete</span>
-                                  </button>
-                                </div>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={isBusy}
+                                      onClick={() => openEditModal(doc)}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        width: '100%',
+                                        padding: '6px 8px',
+                                        fontSize: '12px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer',
+                                        color: '#0F172A',
+                                      }}
+                                    >
+                                      <Edit3 size={13} aria-hidden="true" />
+                                      <span>Edit</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={isBusy}
+                                      onClick={() => {
+                                        setOpenActionDocId(null);
+                                        setDeletingDoc(doc);
+                                      }}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        width: '100%',
+                                        padding: '6px 8px',
+                                        fontSize: '12px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer',
+                                        color: '#B91C1C',
+                                      }}
+                                    >
+                                      <Trash2 size={13} aria-hidden="true" />
+                                      <span>Delete</span>
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );
@@ -1965,6 +2098,68 @@ const handleTableDownload = async (doc: InstructorBookRecord) => {
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Pagination Bar */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                    padding: '10px 14px',
+                    borderTop: '1px solid #E2E8F0',
+                    background: '#F8FAFC',
+                    fontSize: '12px',
+                  }}
+                >
+                  <span style={{ color: '#475569' }}>
+                    Showing {rangeStart}–{rangeEnd} of {myUploads.length}
+                  </span>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#475569' }}>
+                      <span>Rows</span>
+                      <select
+                        value={pageSize}
+                        onChange={(e) => setPageSize(Number(e.target.value))}
+                        aria-label="Rows per page"
+                      >
+                        <option value={10}>10</option>
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                      </select>
+                    </label>
+
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={safeCurrentPage <= 1 || isLoadingUploads}
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        aria-label="Previous page"
+                      >
+                        <ChevronLeft size={14} aria-hidden="true" />
+                        <span>Prev</span>
+                      </button>
+
+                      <span style={{ padding: '0 6px', fontWeight: 600, color: '#0F172A' }}>
+                        Page {safeCurrentPage} of {totalPages}
+                      </span>
+
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={safeCurrentPage >= totalPages || isLoadingUploads}
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        aria-label="Next page"
+                      >
+                        <span>Next</span>
+                        <ChevronRight size={14} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </section>
             </div>

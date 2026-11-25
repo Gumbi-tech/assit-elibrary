@@ -3,14 +3,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
-  BookMarked,
   BookOpen,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Edit3,
   Eye,
   FileUp,
   Loader2,
+  MoreHorizontal,
   RefreshCw,
   Search,
   Sparkles,
@@ -94,9 +96,6 @@ function getRelatedBooks(
     const candProgramNames = extractNames(candidate.programs);
     const candTagNames = extractNames(candidate.tags);
 
-    const candProgramSet = new Set(candProgramNames.map((p) => p.toLowerCase()));
-    const candTagSet = new Set(candTagNames.map((t) => t.toLowerCase()));
-
     const sharedPrograms = candProgramNames.filter((p) =>
       targetPrograms.includes(p.toLowerCase())
     );
@@ -168,12 +167,19 @@ export const AdminLibrarySection: React.FC<Props> = ({
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [programFilter, setProgramFilter] = useState('ALL');
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   // Row selection & bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [isBulkDownloading, setIsBulkDownloading] = useState(false);
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
   const [bulkDeleteError, setBulkDeleteError] = useState('');
+
+  // On-demand row action menu
+  const [openActionDocId, setOpenActionDocId] = useState<string | null>(null);
 
   // Upload modal state
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -209,10 +215,28 @@ export const AdminLibrarySection: React.FC<Props> = ({
   }, [externalSearch]);
 
   useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, categoryFilter, programFilter, pageSize]);
+
+  useEffect(() => {
     if (openUploadSignal > 0) {
       setIsUploadModalOpen(true);
     }
   }, [openUploadSignal]);
+
+  useEffect(() => {
+    if (!openActionDocId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenActionDocId(null);
+    };
+    const handleClickOutside = () => setOpenActionDocId(null);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('click', handleClickOutside);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('click', handleClickOutside);
+    };
+  }, [openActionDocId]);
 
   const loadDocuments = useCallback(async () => {
     setIsLoadingDocs(true);
@@ -282,6 +306,18 @@ export const AdminLibrarySection: React.FC<Props> = ({
     });
   }, [documents, categoryFilter, programFilter, searchQuery]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredDocuments.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedDocuments = useMemo(() => {
+    const start = (safeCurrentPage - 1) * pageSize;
+    return filteredDocuments.slice(start, start + pageSize);
+  }, [filteredDocuments, safeCurrentPage, pageSize]);
+
+  const rangeStart =
+    filteredDocuments.length === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safeCurrentPage * pageSize, filteredDocuments.length);
+
   const relatedMatches = useMemo(() => {
     if (!relatedTargetDoc) return [];
     return getRelatedBooks(relatedTargetDoc, documents);
@@ -293,8 +329,8 @@ export const AdminLibrarySection: React.FC<Props> = ({
   }, [previewDoc, documents]);
 
   const visibleIds = useMemo(
-    () => filteredDocuments.map((d) => d.id),
-    [filteredDocuments]
+    () => paginatedDocuments.map((d) => d.id),
+    [paginatedDocuments]
   );
 
   const selectedDocuments = useMemo(
@@ -357,6 +393,7 @@ export const AdminLibrarySection: React.FC<Props> = ({
   };
 
   const openEditModal = (doc: ExtendedDocumentRecord) => {
+    setOpenActionDocId(null);
     setEditingDoc(doc);
     setEditName(doc.name);
     setEditAuthor(doc.author || '');
@@ -534,6 +571,7 @@ export const AdminLibrarySection: React.FC<Props> = ({
   };
 
   const handlePreview = async (doc: ExtendedDocumentRecord) => {
+    setOpenActionDocId(null);
     if (!doc.signedUrl) {
       onNotify('error', 'Preview URL unavailable. Refresh the catalog first.');
       return;
@@ -553,6 +591,7 @@ export const AdminLibrarySection: React.FC<Props> = ({
   };
 
   const handleDownload = async (doc: ExtendedDocumentRecord) => {
+    setOpenActionDocId(null);
     if (!doc.signedUrl) {
       onNotify('error', 'Download URL unavailable. Refresh the catalog first.');
       return;
@@ -576,7 +615,7 @@ export const AdminLibrarySection: React.FC<Props> = ({
   const isBatchBusy = isBulkDeleting || isBulkDownloading;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%' }}>
       {/* Action Bar */}
       <div
         style={{
@@ -615,12 +654,12 @@ export const AdminLibrarySection: React.FC<Props> = ({
       </div>
 
       {/* Filters & Catalog Panel */}
-      <section className="repo-panel">
+      <section className="repo-panel" style={{ overflow: 'visible' }}>
         <div className="repo-panel-head">
           <strong>
             <BookOpen size={15} aria-hidden="true" /> LIBRARY CATALOG ({filteredDocuments.length})
           </strong>
-          <span>PROGRAM BADGES ARE INFORMATIONAL ONLY</span>
+          <span>PAGINATED DATA TABLE</span>
         </div>
 
         <div className="repo-filters">
@@ -674,6 +713,7 @@ export const AdminLibrarySection: React.FC<Props> = ({
               setCategoryFilter('ALL');
               setProgramFilter('ALL');
               setSearchQuery('');
+              setCurrentPage(1);
             }}
           >
             Reset
@@ -734,20 +774,23 @@ export const AdminLibrarySection: React.FC<Props> = ({
           </div>
         )}
 
-        <div className="repo-table-wrap">
-          <table className="repo-table">
+        <div
+          className="repo-table-wrap"
+          style={{ width: '100%', overflowX: 'auto', overflowY: 'visible' }}
+        >
+          <table className="repo-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th className="repo-select-column">
+                <th className="repo-select-column" style={{ width: '40px' }}>
                   <button
                     type="button"
                     className="repo-select-all"
                     onClick={toggleAllVisible}
-                    disabled={filteredDocuments.length === 0 || isLoadingDocs}
+                    disabled={paginatedDocuments.length === 0 || isLoadingDocs}
                     aria-label={
                       allVisibleSelected
-                        ? 'Deselect all visible documents'
-                        : 'Select all visible documents'
+                        ? 'Deselect all documents on current page'
+                        : 'Select all documents on current page'
                     }
                   >
                     <span
@@ -761,34 +804,36 @@ export const AdminLibrarySection: React.FC<Props> = ({
                     </span>
                   </button>
                 </th>
-                <th>Document, Badges &amp; Tags</th>
-                <th>Category</th>
-                <th>Size</th>
-                <th>Actions</th>
+                <th className="nowrap">Document</th>
+                <th className="nowrap">Author</th>
+                <th className="nowrap">Category</th>
+                <th className="nowrap">Size</th>
+                <th className="nowrap" style={{ textAlign: 'right' }}>
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {isLoadingDocs ? (
                 <tr>
-                  <td colSpan={5} className="empty">
+                  <td colSpan={6} className="empty">
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                       <Loader2 size={14} className="animate-spin" />
                       Loading library documents...
                     </span>
                   </td>
                 </tr>
-              ) : filteredDocuments.length === 0 ? (
+              ) : paginatedDocuments.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="empty">
+                  <td colSpan={6} className="empty">
                     No documents match your filter. Click &ldquo;Upload PDF&rdquo; to publish a resource.
                   </td>
                 </tr>
               ) : (
-                filteredDocuments.map((doc) => {
+                paginatedDocuments.map((doc) => {
                   const isSelected = selectedIds.has(doc.id);
                   const isBusy = busyActionId === doc.id || isBatchBusy;
-                  const docPrograms = extractNames(doc.programs);
-                  const docTags = extractNames(doc.tags);
+                  const isMenuOpen = openActionDocId === doc.id;
 
                   return (
                     <tr
@@ -796,7 +841,11 @@ export const AdminLibrarySection: React.FC<Props> = ({
                       className={`repo-document-row${isSelected ? ' is-selected' : ''}`}
                       onClick={() => toggleOne(doc.id)}
                     >
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="nowrap"
+                        style={{ paddingTop: '8px', paddingBottom: '8px' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button
                           type="button"
                           className={`repo-row-checkbox${isSelected ? ' is-checked' : ''}`}
@@ -813,120 +862,215 @@ export const AdminLibrarySection: React.FC<Props> = ({
                         </button>
                       </td>
 
-                      <td>
-                        <div>
-                          <strong>{doc.name}</strong>
-                          <div style={{ fontSize: '11px', color: '#64748B' }}>
-                            {doc.author ? `${doc.author} · ` : ''}
-                            {doc.filename}
-                          </div>
-
-                          {docPrograms.length > 0 && (
-                            <div
-                              style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                gap: '4px',
-                                marginTop: '4px',
-                              }}
-                            >
-                              {docPrograms.map((prog) => (
-                                <span
-                                  key={prog}
-                                  className="category"
-                                  style={{ background: '#EFF6FF', color: '#1E3A8A' }}
-                                >
-                                  <BookMarked
-                                    size={10}
-                                    style={{ display: 'inline', marginRight: '3px' }}
-                                  />
-                                  {prog}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-
-                          {docTags.length > 0 && (
-                            <div
-                              style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                gap: '4px',
-                                marginTop: '4px',
-                              }}
-                            >
-                              {docTags.map((tag) => (
-                                <span key={tag} className="category">
-                                  #{tag}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                      <td
+                        className="nowrap"
+                        style={{
+                          paddingTop: '8px',
+                          paddingBottom: '8px',
+                          maxWidth: '280px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        title={doc.name}
+                      >
+                        <strong>{doc.name}</strong>
                       </td>
 
-                      <td>
+                      <td
+                        className="nowrap"
+                        style={{
+                          paddingTop: '8px',
+                          paddingBottom: '8px',
+                          maxWidth: '160px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          color: '#475569',
+                        }}
+                        title={doc.author || '—'}
+                      >
+                        {doc.author || '—'}
+                      </td>
+
+                      <td className="nowrap" style={{ paddingTop: '8px', paddingBottom: '8px' }}>
                         <span className="category">{doc.category || 'Uncategorized'}</span>
                       </td>
 
-                      <td className="nowrap">{formatBytes(doc.size)}</td>
+                      <td className="nowrap" style={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                        {formatBytes(doc.size)}
+                      </td>
 
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <div className="row-actions">
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={isBusy}
-                            onClick={() => setRelatedTargetDoc(doc)}
-                          >
-                            <Sparkles size={13} />
-                            <span>Related</span>
-                          </button>
+                      <td
+                        className="nowrap"
+                        style={{
+                          paddingTop: '8px',
+                          paddingBottom: '8px',
+                          textAlign: 'right',
+                          position: 'relative',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={isBusy}
+                          aria-haspopup="menu"
+                          aria-expanded={isMenuOpen}
+                          aria-label={`Actions for ${doc.name}`}
+                          onClick={() =>
+                            setOpenActionDocId((prev) => (prev === doc.id ? null : doc.id))
+                          }
+                        >
+                          {busyActionId === doc.id ? (
+                            <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                          ) : (
+                            <MoreHorizontal size={14} aria-hidden="true" />
+                          )}
+                          <span>Actions</span>
+                        </button>
 
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={isBusy}
-                            onClick={() => void handlePreview(doc)}
+                        {isMenuOpen && (
+                          <div
+                            role="menu"
+                            aria-label={`Row actions for ${doc.name}`}
+                            style={{
+                              position: 'absolute',
+                              right: '10px',
+                              top: 'calc(100% - 4px)',
+                              zIndex: 30,
+                              minWidth: '152px',
+                              background: '#FFFFFF',
+                              border: '1px solid #CBD5E1',
+                              borderRadius: '4px',
+                              boxShadow: '0 8px 20px rgba(15, 23, 42, 0.12)',
+                              padding: '4px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                              textAlign: 'left',
+                            }}
                           >
-                            {busyActionId === doc.id ? (
-                              <Loader2 size={13} className="animate-spin" />
-                            ) : (
-                              <Eye size={13} />
-                            )}
-                            <span>View</span>
-                          </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={isBusy}
+                              onClick={() => {
+                                setOpenActionDocId(null);
+                                setRelatedTargetDoc(doc);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                width: '100%',
+                                padding: '6px 8px',
+                                fontSize: '12px',
+                                background: 'transparent',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                                color: '#0F172A',
+                              }}
+                            >
+                              <Sparkles size={13} aria-hidden="true" />
+                              <span>Related</span>
+                            </button>
 
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={isBusy}
-                            onClick={() => void handleDownload(doc)}
-                          >
-                            <Download size={13} />
-                            <span>Download</span>
-                          </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={isBusy}
+                              onClick={() => void handlePreview(doc)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                width: '100%',
+                                padding: '6px 8px',
+                                fontSize: '12px',
+                                background: 'transparent',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                                color: '#0F172A',
+                              }}
+                            >
+                              <Eye size={13} aria-hidden="true" />
+                              <span>View</span>
+                            </button>
 
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={isBusy}
-                            onClick={() => openEditModal(doc)}
-                          >
-                            <Edit3 size={13} />
-                            <span>Edit</span>
-                          </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={isBusy}
+                              onClick={() => void handleDownload(doc)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                width: '100%',
+                                padding: '6px 8px',
+                                fontSize: '12px',
+                                background: 'transparent',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                                color: '#0F172A',
+                              }}
+                            >
+                              <Download size={13} aria-hidden="true" />
+                              <span>Download</span>
+                            </button>
 
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={isBusy}
-                            onClick={() => setDeletingDoc(doc)}
-                          >
-                            <Trash2 size={13} />
-                            <span>Delete</span>
-                          </button>
-                        </div>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={isBusy}
+                              onClick={() => openEditModal(doc)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                width: '100%',
+                                padding: '6px 8px',
+                                fontSize: '12px',
+                                background: 'transparent',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                                color: '#0F172A',
+                              }}
+                            >
+                              <Edit3 size={13} aria-hidden="true" />
+                              <span>Edit</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={isBusy}
+                              onClick={() => {
+                                setOpenActionDocId(null);
+                                setDeletingDoc(doc);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                width: '100%',
+                                padding: '6px 8px',
+                                fontSize: '12px',
+                                background: 'transparent',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                                color: '#B91C1C',
+                              }}
+                            >
+                              <Trash2 size={13} aria-hidden="true" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -934,6 +1078,68 @@ export const AdminLibrarySection: React.FC<Props> = ({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Pagination Bar */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            flexWrap: 'wrap',
+            padding: '10px 14px',
+            borderTop: '1px solid #E2E8F0',
+            background: '#F8FAFC',
+            fontSize: '12px',
+          }}
+        >
+          <span style={{ color: '#475569' }}>
+            Showing {rangeStart}–{rangeEnd} of {filteredDocuments.length}
+          </span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#475569' }}>
+              <span>Rows</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                aria-label="Rows per page"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+              </select>
+            </label>
+
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={safeCurrentPage <= 1 || isLoadingDocs}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+              >
+                <ChevronLeft size={14} aria-hidden="true" />
+                <span>Prev</span>
+              </button>
+
+              <span style={{ padding: '0 6px', fontWeight: 600, color: '#0F172A' }}>
+                Page {safeCurrentPage} of {totalPages}
+              </span>
+
+              <button
+                type="button"
+                className="secondary"
+                disabled={safeCurrentPage >= totalPages || isLoadingDocs}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <span>Next</span>
+                <ChevronRight size={14} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
